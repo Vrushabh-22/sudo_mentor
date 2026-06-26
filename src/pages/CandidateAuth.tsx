@@ -109,10 +109,15 @@ export default function CandidateAuth() {
   const handleSocialLogin = async (provider: "google" | "github" | "azure") => {
     setSocialLoading(provider);
     try {
+      const intendedRedirect = searchParams.get("redirect") || "/";
+      try {
+        sessionStorage.setItem("candidate_post_login_redirect", intendedRedirect);
+      } catch {}
+      const redirectTo = `${window.location.origin}/auth?redirect=${encodeURIComponent(intendedRedirect)}`;
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${window.location.origin}/`,
+          redirectTo,
           ...(provider === "azure" ? { scopes: "openid profile email" } : {}),
         },
       });
