@@ -1,0 +1,220 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Safety guard: Radix Dialog/AlertDialog can leave pointer-events:none
+   stuck on <body> after closing, which silently breaks every dropdown,
+   popover and select on the page until reload. The overlay element itself
+   still blocks underlying clicks while a modal is open. */
+body { pointer-events: auto !important; }
+
+@layer base {
+  :root {
+    --primary-rgb: 114, 70, 229;
+
+    --primary: 263 70% 50%;
+    --primary-dark: 263 70% 35%;
+    --primary-foreground: 0 0% 100%;
+    --primary-light: 263 70% 65%;
+
+    --secondary: 25 95% 53%;
+    --secondary-foreground: 0 0% 100%;
+    --secondary-light: 25 95% 68%;
+
+    --background: 0 0% 100%;
+    --background-secondary: 240 11% 96%;
+    --foreground: 222.2 84% 4.9%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 263 70% 50%;
+
+    --glass-background: 0 0% 100% / 0.6;
+    --glass-border: 0 0% 0% / 0.1;
+    --glass-shadow: 0 0% 0% / 0.1;
+    --backdrop-blur: blur(16px);
+
+    --card: 0 0% 100% / 0.7;
+    --card-hover: 0 0% 100% / 0.9;
+    --card-foreground: 222.2 84% 4.9%;
+    --card-border: 0 0% 0% / 0.1;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    --success: 142 76% 36%;
+    --success-light: 142 76% 50%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 0%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+    --accent: 25 95% 53%;
+    --accent-foreground: 0 0% 100%;
+    --accent-light: 25 95% 68%;
+
+    --course-bg: 263 70% 50% / 0.05;
+    --assessment-bg: 25 95% 53% / 0.05;
+    --analytics-bg: 142 76% 36% / 0.05;
+
+    --gradient-primary: linear-gradient(135deg, hsl(263 70% 50%), hsl(263 70% 35%));
+    --gradient-secondary: linear-gradient(135deg, hsl(25 95% 53%), hsl(263 70% 50%));
+    --gradient-modern: linear-gradient(135deg, hsl(268 83% 58%), hsl(270 91% 65%));
+    --gradient-vibrant: linear-gradient(135deg, hsl(280 100% 70%), hsl(340 75% 68%));
+    --gradient-card-purple: linear-gradient(135deg, hsl(268 83% 58%), hsl(270 91% 65%));
+    --gradient-card-pink: linear-gradient(135deg, hsl(340 75% 68%), hsl(320 85% 75%));
+    --gradient-card-blue: linear-gradient(135deg, hsl(230 89% 62%), hsl(240 87% 70%));
+    --gradient-hero: radial-gradient(ellipse at top, hsl(263 70% 50% / 0.2), transparent 50%), radial-gradient(ellipse at bottom right, hsl(25 95% 53% / 0.2), transparent 50%);
+    --gradient-card: linear-gradient(135deg, hsl(0 0% 100% / 0.8), hsl(0 0% 100% / 0.4));
+    --gradient-glass: linear-gradient(135deg, hsl(0 0% 100% / 0.8), hsl(0 0% 100% / 0.6));
+    --gradient-mesh: radial-gradient(at 40% 20%, hsl(263 70% 50% / 0.04) 0px, transparent 50%), radial-gradient(at 80% 0%, hsl(25 95% 53% / 0.035) 0px, transparent 50%), radial-gradient(at 0% 50%, hsl(142 76% 36% / 0.03) 0px, transparent 50%);
+
+    --tenant-primary: hsl(var(--primary));
+    --tenant-secondary: hsl(var(--secondary));
+    --tenant-accent: hsl(var(--accent));
+
+    --radius: 1rem;
+
+    --sidebar-background: 0 0% 100% / 0.8;
+    --sidebar-foreground: 222.2 84% 4.9%;
+    --sidebar-primary: 263 70% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 0% / 0.05;
+    --sidebar-accent-foreground: 222.2 84% 4.9%;
+    --sidebar-border: 0 0% 0% / 0.1;
+    --sidebar-ring: 263 70% 50%;
+  }
+
+  .dark {
+    --primary: 263 70% 60%;
+    --primary-dark: 263 70% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 25 95% 58%;
+    --secondary-foreground: 0 0% 100%;
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --success: 142 76% 41%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 0 0% 0%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --accent: 25 95% 58%;
+    --accent-foreground: 0 0% 100%;
+    --course-bg: 263 100% 8%;
+    --assessment-bg: 25 100% 8%;
+    --analytics-bg: 142 100% 8%;
+    --gradient-primary: linear-gradient(135deg, hsl(263 70% 60%), hsl(263 70% 45%));
+    --gradient-hero: linear-gradient(135deg, hsl(263 70% 60%), hsl(25 95% 58%));
+    --gradient-card: linear-gradient(180deg, hsl(222.2 84% 4.9%), hsl(217.2 32.6% 17.5%));
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    background-image: var(--gradient-mesh);
+    background-attachment: fixed;
+  }
+
+  .glass {
+    background: hsl(var(--glass-background));
+    backdrop-filter: var(--backdrop-blur);
+    -webkit-backdrop-filter: var(--backdrop-blur);
+    border: 1px solid hsl(var(--glass-border));
+    box-shadow: 0 8px 32px 0 hsl(var(--glass-shadow));
+  }
+
+  .glass-card {
+    @apply glass rounded-2xl;
+    background: var(--gradient-glass);
+  }
+
+  .glass-hover {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .glass-hover:hover {
+    background: hsl(var(--card-hover));
+    transform: translateY(-2px);
+    box-shadow: 0 20px 40px 0 hsl(var(--glass-shadow));
+  }
+
+  .animate-gradient {
+    background-size: 200% 200%;
+    animation: gradient 3s ease infinite;
+  }
+}
+
+@keyframes gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes glow {
+  from { box-shadow: 0 0 20px hsl(var(--primary) / 0.2); }
+  to { box-shadow: 0 0 30px hsl(var(--primary) / 0.4); }
+}
+
+@supports (padding: env(safe-area-inset-top)) {
+  .safe-top { padding-top: env(safe-area-inset-top); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .safe-left { padding-left: env(safe-area-inset-left); }
+  .safe-right { padding-right: env(safe-area-inset-right); }
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  overflow-x: hidden;
+}
+
+@supports (-webkit-touch-callout: none) {
+  body { min-height: -webkit-fill-available; }
+}
+
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.pb-safe { padding-bottom: max(0.625rem, env(safe-area-inset-bottom)); }
+
+.touch-manipulation {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
