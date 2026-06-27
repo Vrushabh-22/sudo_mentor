@@ -45,7 +45,7 @@ export interface V4Bootstrap {
 
 export default function CandidatePortalV4() {
   useCandidatePWAManifest();
-  const { user, loading, pendingTenantChoices, selectTenant } = useCandidateAuth();
+  const { user, loading } = useCandidateAuth();
   const [data, setData] = useState<V4Bootstrap | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const isFullscreen = new URLSearchParams(window.location.search).get("fullscreenBoard") === "1";
@@ -62,14 +62,6 @@ export default function CandidatePortalV4() {
   useEffect(() => {
     if (user) refresh();
   }, [user, refresh]);
-
-  if (pendingTenantChoices && pendingTenantChoices.length > 0) {
-    return (
-      <div className="min-h-screen bg-background">
-        <TenantPickerModal choices={pendingTenantChoices} onSelect={selectTenant} />
-      </div>
-    );
-  }
 
   if (loading) {
     return (
