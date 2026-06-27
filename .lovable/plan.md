@@ -1,112 +1,113 @@
-## Pivot summary
+## LLM Providers + central `llm_caller` — plan
 
-Drop the tenant concept entirely — this app is now a single-tenant B2C portal with two roles: `admin` (you) and `candidate` (end user). Admin gets a separate login + dashboard to configure system settings (Azure, LLM, OAuth, etc.) and manage candidates at lakhs-of-users scale.
+Replace the current "Azure OpenAI + Default LLM" cards in `/admin → Settings` with a proper provider/key management system, and route every AI call in the portal through one edge function with round-robin key rotation, caching, and observability.
 
-## Phase 0 — Unblock build (mechanical, no design impact)
+### 1. Database (new tables, separate from `app_settings`)
 
-`src/utils/storageUrl.ts` imports `SUPABASE_URL` which the new client doesn't export. Two options, I'll do (a):
-- (a) Export `SUPABASE_URL` from `src/integrations/supabase/client.ts` (one-line export).
-- Re-run `bun run build:dev` to confirm green.
+```text
+llm_providers
+  id uuid pk
+  slug text unique         -- 'openai' | 'azure_openai' | 'groq' | 'anthropic' | 'lovable' | 'gemini'
+  display_name text
+  base_url text            -- optional override (Azure endpoint, self-hosted, etc.)
+  default_model text
+  config jsonb             -- provider-specific (api_version, deployment, region…)
+  enabled boolean
+  is_active boolean        -- exactly one row true = currently selected provider
+  created_at / updated_at
 
-## Phase 1 — Drop tenant concept
+llm_api_keys                -- the "pool"
+  id uuid pk
+  provider_id uuid fk -> llm_providers
+  label text                -- "prod-key-1"
+  key_ciphertext text       -- encrypted with pgcrypto (pgp_sym_encrypt + vault key)
+  key_last4 text            -- shown in UI
+  enabled boolean
+  weight int default 1      -- round-robin weight
+  last_used_at timestamptz
+  use_count bigint default 0
+  fail_count int default 0
+  cooldown_until timestamptz -- auto-disable on 429/5xx
+  created_at
 
-Code:
-- Remove `V4TenantSwitcher` from `V4Shell` header.
-- Remove `tenantId` from `CandidateUser`, `useCandidateAuth`, `invokeV4`, `TenantPickerModal`, and `pendingTenantChoices` flow.
-- `useCandidateAuth.hydrate` becomes: `getSession()` → upsert/select the `candidates` row by `user_id` → set user. No more `resolve-candidate-by-email` edge function dependency for login.
-- Delete `TenantPickerModal` usage and `select-candidate-tenant` references.
+llm_call_log                -- lightweight observability (partitioned monthly for B2C scale)
+  id uuid, provider_id, key_id, feature text, model text,
+  status int, latency_ms int, prompt_tokens int, completion_tokens int,
+  cache_hit boolean, error text, created_at timestamptz
 
-Schema (migration 1):
-- `app_role` enum: `admin`, `candidate`.
-- `user_roles(user_id, role)` + `has_role()` SECURITY DEFINER helper (standard Lovable pattern, prevents recursive RLS).
-- `candidates(id, user_id unique, email citext, full_name, avatar_url, phone, headline, bio, resume_url, location, skills text[], profile_extra jsonb, xp_total, streak_days, last_active_at, created_at, updated_at)` with indexes on `email`, `last_active_at desc`, GIN on `skills`, trigram GIN on `lower(full_name)` and `email` for admin search at scale.
-- `handle_new_user()` trigger on `auth.users` → inserts into `candidates` + grants `candidate` role.
-- RLS: candidate sees own row; admin sees all via `has_role(auth.uid(),'admin')`.
-- GRANTs per Lovable rules (no `anon`, `authenticated` + `service_role`).
+llm_cache                   -- optional response cache
+  cache_key text pk         -- sha256(provider|model|messages|tools|temp)
+  response jsonb
+  expires_at timestamptz
+```
 
-## Phase 2 — Super-admin bootstrap
+RLS: admin-only read/write on providers/keys/log; service_role full access (edge function uses it). Keys never returned to client unencrypted — admin UI only shows `label` + `key_last4`.
 
-- Seed the super admin via an idempotent edge function `bootstrap-super-admin` invoked once: creates `auth.users` row for `akshay.deshmukh@techademy.com` with password `Akshay1234$$` (email pre-confirmed) using service role, then inserts `(user_id, 'admin')` into `user_roles`.
-- Run it automatically the first time via a one-shot data insert after the migration completes (uses `supabase.auth.admin.createUser` from the edge function). Idempotent: skip if user already exists, just ensure admin role row exists.
-- Add `/admin/login` and `/admin` routes. Admin login uses standard email+password (no OAuth). After login, check `has_role(auth.uid(),'admin')` via a `useIsAdmin()` hook; non-admins are redirected away.
+Encryption: pgcrypto symmetric using `LLM_KEYS_ENC_SECRET` (generated secret, edge-function side). All encrypt/decrypt happens inside the edge function or SECURITY DEFINER helpers — never in the browser.
 
-Note on the password: storing user-supplied passwords in chat is not ideal, but since you explicitly provided it as a bootstrap credential I'll use it once via the bootstrap function and recommend you rotate it from the admin UI after first login (a "Change password" form will be included in admin settings).
+### 2. Central edge function: `llm-caller`
 
-## Phase 3 — Admin settings storage (Azure, LLM, etc.)
+Single boundary for **every** AI call in the portal (Mentor, Practice, Project eval, note-cover, summaries, etc.).
 
-Schema (migration 2):
-- `app_settings(key text primary key, value jsonb not null, updated_by uuid, updated_at timestamptz)`.
-  - Single source of truth, JSON values so we can add new providers without migrations.
-  - Seed keys: `azure_openai` (`{endpoint, deployment, api_version}`), `llm_default` (`{provider, model, temperature}`), `google_oauth` (`{client_id}` — secret stays in Supabase secrets), `branding` (`{name, logo_url}`).
-  - **Secrets (API keys) are NOT stored here.** They go into Supabase Edge Function secrets via `add_secret`. The DB only stores non-secret config (endpoint, deployment name, model id, etc.). The admin UI's "Set/Rotate API key" buttons will trigger the `add_secret` flow.
-- RLS: only `admin` can SELECT/UPDATE.
-- Edge functions read settings via service role + secrets via `Deno.env.get`.
+Contract:
+```
+POST /functions/v1/llm-caller
+{
+  feature: "mentor.chat" | "practice.quiz" | "project.eval" | ...,
+  mode: "chat" | "stream" | "json",
+  messages: [...],          // OpenAI-style
+  schema?: {...},           // for structured output
+  temperature?, max_tokens?, tools?,
+  cache?: { ttl_seconds: number } // opt-in caching
+}
+```
 
-Admin UI:
-- `/admin` shell with tabs: **Candidates**, **Settings → Azure / LLM / OAuth / Branding**, **Audit log** (later).
-- Each setting tab is a typed form; submit → upsert into `app_settings`; secret fields show "Set" / "Update" buttons that open a secret-input flow.
+Internals (in this order):
+1. Auth: require valid candidate or admin JWT.
+2. Load active provider + enabled, non-cooling keys (cached in memory ~30s).
+3. Cache check (if `cache.ttl_seconds` and `mode != stream`).
+4. Round-robin key pick (advance pointer in Postgres via `SELECT ... FOR UPDATE SKIP LOCKED` on a tiny `llm_rr_cursor` row, weighted).
+5. Build provider-specific request (OpenAI / Azure / Groq / Gemini adapters in one file).
+6. Stream via SSE for `mode=stream`; otherwise return JSON.
+7. On 429/5xx: mark key `cooldown_until = now() + Nm`, retry next key (max N attempts), log failure.
+8. On success: update `last_used_at`, increment counters, log latency/tokens, write cache if requested.
 
-## Phase 4 — Admin candidates management at scale
+All other functions (mentor, project-eval, etc.) **must** call `llm-caller` via internal `fetch` — no `LOVABLE_API_KEY` / OpenAI SDK usage anywhere else. A `_shared/llmClient.ts` helper exposes `callLLM()` and `streamLLM()` so functions don't duplicate fetch boilerplate.
 
-Goal: list/search/inspect candidates when there are lakhs (10⁵–10⁶+).
+### 3. Admin UI changes (`/admin → Settings`)
 
-Schema additions (in migration 1):
-- Composite indexes:
-  - `(last_active_at desc, id)` — keyset pagination on activity.
-  - `(created_at desc, id)` — keyset pagination on signup time.
-  - `trgm` indexes on `lower(full_name)` and `email` for ILIKE search.
-- Optional materialized view `candidate_stats_mv` (refreshed every N minutes via pg_cron) for `total_count`, `active_last_7d`, etc. — avoids a `COUNT(*)` on the hot path.
+Replace Azure + Default LLM cards with a single "LLM Providers" section:
 
-Edge function `admin-candidates-list`:
-- Verifies admin via JWT.
-- Accepts `{ cursor?: {last_active_at, id}, limit (max 100), q?, sort? }`.
-- Returns `{ rows, nextCursor }` using **keyset pagination** (`WHERE (last_active_at, id) < (cursor.last_active_at, cursor.id) ORDER BY last_active_at DESC, id DESC LIMIT N`).
-- Search uses trigram index when `q` is set.
-- Counts come from the materialized view, not `COUNT(*)`.
+- **Provider selector** (dropdown): OpenAI / Azure OpenAI / Groq / Anthropic / Gemini / Lovable AI Gateway. Only one is "Active".
+- **Per-provider config form** (shown when that provider row is selected): base_url, default_model, api_version/deployment (Azure-only fields appear conditionally), temperature default.
+- **API key pool table** for the active provider:
+  - Columns: Label, key (•••• + last 4), enabled toggle, weight, last used, success/fail counts, cooldown, delete.
+  - "Add key" button → modal asking label + raw key; submitted to `admin-llm-keys` edge function which encrypts + inserts. Raw key never stored in React state beyond submit.
+- **Test button** per key → calls `llm-caller` with `feature=admin.test` and shows latency/model echo.
 
-Admin UI:
-- Virtualized list (e.g. `@tanstack/react-virtual`) — never renders 1000+ DOM rows.
-- Infinite query via `useInfiniteQuery` consuming the cursor.
-- Server-side search box (debounced).
-- Drawer for candidate detail: profile, XP, applications, notes count, suspend/reactivate.
-- Bulk actions deferred until you ask.
+Google OAuth + Branding cards stay as-is in `app_settings`.
 
-The Supabase 1000-row default is a PostgREST limit; we sidestep it by (a) calling our edge function which sets `range` explicitly, and (b) using cursor-based pagination so any single page is small. The DB itself has no such limit.
+### 4. Supporting edge functions
 
-## Phase 5 — (Out of scope for this PR, listed for next round)
+- `admin-llm-keys` — admin-only CRUD for keys (encrypts on insert, never returns plaintext).
+- `llm-caller` — the only AI call boundary.
+- Refactor any existing/future feature functions (mentor chat, project eval, etc.) to call `llm-caller` exclusively. Phase 1 ships the plumbing; we wire features as each is built.
 
-- Candidate features that read settings (Mentor chat reading `llm_default`, etc.) — once Phase 3 lands, the edge functions can stop relying on env-baked defaults.
-- pg_cron job to refresh `candidate_stats_mv` and to mark inactive candidates.
-- Admin audit log table.
+### 5. Secrets
 
-## Files I'll touch this round
+- `LLM_KEYS_ENC_SECRET` — generated, used by pgcrypto for key encryption.
+- `LOVABLE_API_KEY` — kept; "Lovable AI Gateway" becomes one selectable provider so we always have a working fallback.
 
-Build fix:
-- `src/integrations/supabase/client.ts` (export `SUPABASE_URL`).
+### 6. Scale notes (lakhs of users)
 
-Tenant removal:
-- `src/hooks/useCandidateAuth.tsx`
-- `src/lib/candidatePortalV4Client.ts`
-- `src/components/candidate/v4/V4Shell.tsx`
-- delete usages of `V4TenantSwitcher` and `TenantPickerModal` (keep files but unused; remove imports).
+- Provider/keys loaded with 30s in-memory TTL inside the function instance — avoids hitting DB on every call.
+- Round-robin cursor uses a single row + `SKIP LOCKED` so concurrent function instances don't contend.
+- `llm_call_log` declared as monthly partitioned table from day one.
+- `llm_cache` GC via a daily cron deleting `expires_at < now()`.
+- All key reads via SECURITY DEFINER RPC so RLS stays strict.
 
-New routing:
-- `src/App.tsx` — add `/admin/login` and `/admin/*`.
-- `src/pages/AdminLogin.tsx`, `src/pages/AdminShell.tsx`, `src/components/admin/AdminCandidatesList.tsx`, `src/components/admin/AdminSettings*.tsx`, `src/hooks/useIsAdmin.tsx`.
+### Out of scope for this step
+- Wiring existing components to `llm-caller` (done feature-by-feature in their phases).
+- Per-tenant key isolation (single-tenant B2C, not needed).
 
-Edge functions:
-- `supabase/functions/bootstrap-super-admin/index.ts`
-- `supabase/functions/admin-candidates-list/index.ts`
-- `supabase/functions/admin-update-setting/index.ts`
-
-Migrations:
-- M1: roles + candidates + indexes + RLS + trigger.
-- M2: `app_settings` table + RLS + seed default keys with empty JSON.
-
-## What I need from you to proceed
-
-1. **Approve the plan** so I can switch to build mode.
-2. After phase 2 you'll need to (still one-time, dashboard only):
-   - Auth → Providers → enable **Email** with password sign-in (it's on by default but confirm Email confirmations are OFF for the bootstrap admin to work, or I'll pre-confirm via service role).
-   - Auth → URL Configuration → Site URL + redirect URLs (you already have this for Google OAuth on the candidate side).
-3. Confirm you're OK with the bootstrap function pre-confirming the admin email (so you don't need an inbox round-trip).
+If approved I'll: run the migration, generate `LLM_KEYS_ENC_SECRET`, ship the two edge functions, and replace the Azure/Default-LLM cards in `AdminSettings` with the new Provider + Key-pool UI.
