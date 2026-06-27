@@ -1,3 +1,4 @@
+import { Logo } from "@/components/Logo";
 import { useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useIsAdmin } from "@/hooks/useIsAdmin";

@@ -1,3 +1,4 @@
+import { Logo } from "@/components/Logo";
 import { useState, useEffect } from "react";
 import { Navigate, useSearchParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
