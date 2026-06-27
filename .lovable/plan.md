@@ -1,106 +1,112 @@
-# Split candidate portal onto its own Supabase project (B2C-scale)
+## Pivot summary
 
-Goal: this app (sudo-mentor) gets its own Supabase project. ATS keeps recruiter data. The two DBs talk only at the "apply to a job" boundary.
+Drop the tenant concept entirely — this app is now a single-tenant B2C portal with two roles: `admin` (you) and `candidate` (end user). Admin gets a separate login + dashboard to configure system settings (Azure, LLM, OAuth, etc.) and manage candidates at lakhs-of-users scale.
 
-## What you need to give me
-Create a new Supabase project (free or pro — pro recommended for 1L+ users so you get connection pooling, PITR, and read replicas later) and share:
+## Phase 0 — Unblock build (mechanical, no design impact)
 
-1. `SUPABASE_URL` (e.g. `https://xxxx.supabase.co`)
-2. `SUPABASE_ANON_KEY` (publishable — goes in `.env`)
-3. `SUPABASE_SERVICE_ROLE_KEY` (stored only as a secret, never in code)
-4. DB password (for one-off data migration scripts; not stored)
-5. Confirm region — pick the same region as the ATS project to keep cross-project sync latency low.
-6. Google OAuth client ID + secret you want to re-use (or I'll guide you to create new ones for the new project).
+`src/utils/storageUrl.ts` imports `SUPABASE_URL` which the new client doesn't export. Two options, I'll do (a):
+- (a) Export `SUPABASE_URL` from `src/integrations/supabase/client.ts` (one-line export).
+- Re-run `bun run build:dev` to confirm green.
 
-Also confirm:
-- **Existing candidates**: migrate them now, or start fresh and let them re-sign-up with Google? (Google users migrate transparently on first login — no password reset. Email/password users need a reset email unless we export the bcrypt hashes from ATS.)
-- **Existing notes / tasks / projects / learning paths / XP / streaks**: copy over, or start empty?
+## Phase 1 — Drop tenant concept
 
-## Architecture after the split
+Code:
+- Remove `V4TenantSwitcher` from `V4Shell` header.
+- Remove `tenantId` from `CandidateUser`, `useCandidateAuth`, `invokeV4`, `TenantPickerModal`, and `pendingTenantChoices` flow.
+- `useCandidateAuth.hydrate` becomes: `getSession()` → upsert/select the `candidates` row by `user_id` → set user. No more `resolve-candidate-by-email` edge function dependency for login.
+- Delete `TenantPickerModal` usage and `select-candidate-tenant` references.
 
-```text
-   Candidate browser (sudo-mentor.lovable.app)
-                  |
-                  v
-   New Supabase project  ──────────── candidate-only data
-   - auth.users (candidates only)
-   - candidates, candidate_notes, candidate_project_tasks,
-     candidate_projects, candidate_submissions,
-     candidate_learning_paths/enrollments, candidate_xp_events,
-     candidate_streaks, leaderboard_*, mentor_threads/messages
-   - storage: resumes, note-covers, project-uploads
-   - edge functions: candidate-portal-v4-api, mentor-*, resolve-candidate-by-email, etc.
-                  |
-                  | only at "apply / status change"
-                  v
-   sync edge function (service-role on both sides)
-                  |
-                  v
-   ATS Supabase project (unchanged) — jobs, recruiters, pipelines
-```
+Schema (migration 1):
+- `app_role` enum: `admin`, `candidate`.
+- `user_roles(user_id, role)` + `has_role()` SECURITY DEFINER helper (standard Lovable pattern, prevents recursive RLS).
+- `candidates(id, user_id unique, email citext, full_name, avatar_url, phone, headline, bio, resume_url, location, skills text[], profile_extra jsonb, xp_total, streak_days, last_active_at, created_at, updated_at)` with indexes on `email`, `last_active_at desc`, GIN on `skills`, trigram GIN on `lower(full_name)` and `email` for admin search at scale.
+- `handle_new_user()` trigger on `auth.users` → inserts into `candidates` + grants `candidate` role.
+- RLS: candidate sees own row; admin sees all via `has_role(auth.uid(),'admin')`.
+- GRANTs per Lovable rules (no `anon`, `authenticated` + `service_role`).
 
-Recruiter app keeps working as-is. Candidate portal stops touching ATS for 99% of activity (mentor chat, notes, tasks, learning paths, leaderboard, profile, projects). Only `applications` cross the boundary.
+## Phase 2 — Super-admin bootstrap
 
-## B2C scale decisions baked into the schema
+- Seed the super admin via an idempotent edge function `bootstrap-super-admin` invoked once: creates `auth.users` row for `akshay.deshmukh@techademy.com` with password `Akshay1234$$` (email pre-confirmed) using service role, then inserts `(user_id, 'admin')` into `user_roles`.
+- Run it automatically the first time via a one-shot data insert after the migration completes (uses `supabase.auth.admin.createUser` from the edge function). Idempotent: skip if user already exists, just ensure admin role row exists.
+- Add `/admin/login` and `/admin` routes. Admin login uses standard email+password (no OAuth). After login, check `has_role(auth.uid(),'admin')` via a `useIsAdmin()` hook; non-admins are redirected away.
 
-Designed for lakhs of candidates from day one:
+Note on the password: storing user-supplied passwords in chat is not ideal, but since you explicitly provided it as a bootstrap credential I'll use it once via the bootstrap function and recommend you rotate it from the admin UI after first login (a "Change password" form will be included in admin settings).
 
-1. **Surrogate UUIDs everywhere** with `gen_random_uuid()` — no sequential ints (avoid hot last-page contention).
-2. **Composite indexes on the read paths**, not single-column:
-   - `candidate_notes (candidate_id, is_archived, is_pinned desc, updated_at desc)` — powers the sidebar query in one index scan.
-   - `candidate_project_tasks (candidate_id, status, position)` — powers the kanban.
-   - `candidate_xp_events (candidate_id, created_at desc)` — XP history pagination.
-   - `leaderboard_snapshots (scope, period, rank)` — see point 4.
-3. **Partition the high-write tables by month** (Postgres declarative partitioning):
-   - `candidate_xp_events`, `mentor_messages`, `candidate_activity_log` → `PARTITION BY RANGE (created_at)`, monthly partitions auto-created by a `pg_cron` job. Keeps each partition <10M rows, vacuum cheap, queries hit one partition.
-4. **Leaderboard is precomputed, not live `ORDER BY xp`**:
-   - `leaderboard_snapshots(scope, period, candidate_id, xp, rank)` rebuilt every 5 min by `pg_cron` calling a `refresh_leaderboard()` function. Lakhs of candidates → one materialized scan vs. millions of live sorts.
-5. **Mentor chat history**: `mentor_threads` + `mentor_messages` partitioned monthly. Latest-N reads use `(thread_id, created_at desc)` index; old months archive cheaply.
-6. **JSONB for flexible fields** (`profile_extra`, `note.content`, `evaluation.payload`) with **GIN indexes only on the keys we filter on** — never blanket GIN, it bloats.
-7. **RLS uses SECURITY DEFINER helpers, not subqueries** — `auth_candidate_id()` returns the candidate row id from `auth.uid()` in one cached call, so every policy is `candidate_id = auth_candidate_id()` (single index lookup) instead of joining `candidates` inside every policy. This is the difference between RLS that scales and RLS that melts.
-8. **Connection management**: use Supabase's Supavisor pooler (transaction mode) for the edge functions; the browser uses PostgREST so it doesn't open Postgres connections directly. 1L concurrent users → ~200 pooled connections.
-9. **No `select *` in edge functions** — every function lists exact columns so PostgREST plans tighter and we can add columns later without regression.
-10. **Storage**: separate buckets per content type so we can set per-bucket size limits and CDN cache rules; resumes private with signed URLs, note-covers public with long cache.
+## Phase 3 — Admin settings storage (Azure, LLM, etc.)
 
-## Migration steps (build mode, in this order)
+Schema (migration 2):
+- `app_settings(key text primary key, value jsonb not null, updated_by uuid, updated_at timestamptz)`.
+  - Single source of truth, JSON values so we can add new providers without migrations.
+  - Seed keys: `azure_openai` (`{endpoint, deployment, api_version}`), `llm_default` (`{provider, model, temperature}`), `google_oauth` (`{client_id}` — secret stays in Supabase secrets), `branding` (`{name, logo_url}`).
+  - **Secrets (API keys) are NOT stored here.** They go into Supabase Edge Function secrets via `add_secret`. The DB only stores non-secret config (endpoint, deployment name, model id, etc.). The admin UI's "Set/Rotate API key" buttons will trigger the `add_secret` flow.
+- RLS: only `admin` can SELECT/UPDATE.
+- Edge functions read settings via service role + secrets via `Deno.env.get`.
 
-1. **Provision** new project, save service-role key as a secret in this Lovable project.
-2. **Schema migration** (one big migration file per domain so it's reviewable):
-   - `00_auth_helpers.sql` — `app_role` enum, `user_roles`, `has_role()`, `auth_candidate_id()`.
-   - `01_candidates.sql` — `candidates`, `tenant_memberships`, profile fields, indexes, RLS.
-   - `02_notes_tasks.sql` — notes + tasks tables, GIN on `content`, kanban index.
-   - `03_projects.sql` — `candidate_projects`, `candidate_submissions`, `candidate_project_evaluations`.
-   - `04_learning.sql` — paths, modules, videos, enrollments, progress.
-   - `05_xp_streaks_leaderboard.sql` — XP events (partitioned), streaks, leaderboard snapshots, `refresh_leaderboard()`, pg_cron job.
-   - `06_mentor.sql` — threads + messages (partitioned), indexes.
-   - `07_applications_mirror.sql` — local mirror of jobs + my applications (read cache from ATS).
-   - `08_storage.sql` — buckets + policies.
-   - Each table block follows the required order: `CREATE TABLE` → `GRANT` → `ENABLE RLS` → `CREATE POLICY`.
-3. **Port edge functions** to the new project (re-deploy under new project id): `resolve-candidate-by-email`, `select-candidate-tenant`, `candidate-portal-v4-api`, `mentor-learning-path`, `mentor-*`, `apply-with-social`, `patch_profile`, `generate-note-cover-sas`.
-4. **Sync edge functions** between the two projects:
-   - `sync-jobs-from-ats` (cron, every 2 min, ATS → new DB): pulls open jobs into `jobs_mirror` so the Discover tab queries locally instead of hitting ATS.
-   - `submit-application-to-ats` (event-driven, new DB → ATS): when candidate applies, write to ATS `applications` via service-role, store ATS application id locally for status sync.
-   - `sync-application-status-from-ats` (cron, every 2 min, ATS → new DB): pulls stage/status updates so the candidate sees recruiter decisions.
-5. **Data migration scripts** (run once, only if you choose to migrate):
-   - `pg_dump --data-only` candidate-domain tables from ATS → `pg_restore` into new DB with column remap.
-   - `auth.users` migrated via Admin API loop using exported rows; Google users carry over by email on next login.
-6. **Frontend swap**:
-   - Change `.env` (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID`) to new project values.
-   - Replace any direct ATS table reads with calls to the new mirror tables or edge functions.
-   - Reconfigure Google OAuth on the new project; add `https://sudo-mentor.lovable.app/**` to its redirect allow-list (this also permanently fixes the alpharecruit redirect).
-7. **Smoke test**: login (Google + email), tenant pick, notes CRUD, tasks CRUD, mentor chat, apply to a job (verify it lands in ATS), leaderboard, profile share, resume upload.
-8. **Cutover**: flip DNS / publish, monitor ATS load drop.
+Admin UI:
+- `/admin` shell with tabs: **Candidates**, **Settings → Azure / LLM / OAuth / Branding**, **Audit log** (later).
+- Each setting tab is a typed form; submit → upsert into `app_settings`; secret fields show "Set" / "Update" buttons that open a secret-input flow.
 
-## Effort estimate
-- Schema + RLS + indexes: 1 build session.
-- Edge function ports + sync functions: 1 build session.
-- Frontend env swap + mirror-table reads: 0.5 session.
-- Data migration scripts: 0.5 session (only if you migrate existing rows).
+## Phase 4 — Admin candidates management at scale
 
-## Open decisions before I start building
-1. Migrate existing candidates + their data, or start clean?
-2. Same region as ATS? (please confirm region)
-3. Provide the new project's URL + anon key + service-role key when ready, plus ATS service-role key (as a secret) so the sync functions can read/write ATS.
-4. Should the new project also handle Google OAuth, or do you want me to keep using the ATS-side Google client and just point its redirect to sudo-mentor? (New client is cleaner for isolation.)
+Goal: list/search/inspect candidates when there are lakhs (10⁵–10⁶+).
 
-Once you answer these and share the keys, I'll switch to build mode and execute steps 1–7.
+Schema additions (in migration 1):
+- Composite indexes:
+  - `(last_active_at desc, id)` — keyset pagination on activity.
+  - `(created_at desc, id)` — keyset pagination on signup time.
+  - `trgm` indexes on `lower(full_name)` and `email` for ILIKE search.
+- Optional materialized view `candidate_stats_mv` (refreshed every N minutes via pg_cron) for `total_count`, `active_last_7d`, etc. — avoids a `COUNT(*)` on the hot path.
+
+Edge function `admin-candidates-list`:
+- Verifies admin via JWT.
+- Accepts `{ cursor?: {last_active_at, id}, limit (max 100), q?, sort? }`.
+- Returns `{ rows, nextCursor }` using **keyset pagination** (`WHERE (last_active_at, id) < (cursor.last_active_at, cursor.id) ORDER BY last_active_at DESC, id DESC LIMIT N`).
+- Search uses trigram index when `q` is set.
+- Counts come from the materialized view, not `COUNT(*)`.
+
+Admin UI:
+- Virtualized list (e.g. `@tanstack/react-virtual`) — never renders 1000+ DOM rows.
+- Infinite query via `useInfiniteQuery` consuming the cursor.
+- Server-side search box (debounced).
+- Drawer for candidate detail: profile, XP, applications, notes count, suspend/reactivate.
+- Bulk actions deferred until you ask.
+
+The Supabase 1000-row default is a PostgREST limit; we sidestep it by (a) calling our edge function which sets `range` explicitly, and (b) using cursor-based pagination so any single page is small. The DB itself has no such limit.
+
+## Phase 5 — (Out of scope for this PR, listed for next round)
+
+- Candidate features that read settings (Mentor chat reading `llm_default`, etc.) — once Phase 3 lands, the edge functions can stop relying on env-baked defaults.
+- pg_cron job to refresh `candidate_stats_mv` and to mark inactive candidates.
+- Admin audit log table.
+
+## Files I'll touch this round
+
+Build fix:
+- `src/integrations/supabase/client.ts` (export `SUPABASE_URL`).
+
+Tenant removal:
+- `src/hooks/useCandidateAuth.tsx`
+- `src/lib/candidatePortalV4Client.ts`
+- `src/components/candidate/v4/V4Shell.tsx`
+- delete usages of `V4TenantSwitcher` and `TenantPickerModal` (keep files but unused; remove imports).
+
+New routing:
+- `src/App.tsx` — add `/admin/login` and `/admin/*`.
+- `src/pages/AdminLogin.tsx`, `src/pages/AdminShell.tsx`, `src/components/admin/AdminCandidatesList.tsx`, `src/components/admin/AdminSettings*.tsx`, `src/hooks/useIsAdmin.tsx`.
+
+Edge functions:
+- `supabase/functions/bootstrap-super-admin/index.ts`
+- `supabase/functions/admin-candidates-list/index.ts`
+- `supabase/functions/admin-update-setting/index.ts`
+
+Migrations:
+- M1: roles + candidates + indexes + RLS + trigger.
+- M2: `app_settings` table + RLS + seed default keys with empty JSON.
+
+## What I need from you to proceed
+
+1. **Approve the plan** so I can switch to build mode.
+2. After phase 2 you'll need to (still one-time, dashboard only):
+   - Auth → Providers → enable **Email** with password sign-in (it's on by default but confirm Email confirmations are OFF for the bootstrap admin to work, or I'll pre-confirm via service role).
+   - Auth → URL Configuration → Site URL + redirect URLs (you already have this for Google OAuth on the candidate side).
+3. Confirm you're OK with the bootstrap function pre-confirming the admin email (so you don't need an inbox round-trip).
