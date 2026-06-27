@@ -31,8 +31,8 @@ export default function AdminShell() {
       <header className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2 font-semibold">
-            <ShieldCheck className="h-5 w-5 text-primary" />
-            SudoMentor Admin
+            <Logo className="h-8" to={null} />
+            <span className="text-xs uppercase tracking-wider text-muted-foreground border-l pl-2 ml-1">Admin</span>
           </div>
           <div className="flex items-center gap-3 text-sm">
             <span className="text-muted-foreground hidden sm:inline">{email}</span>

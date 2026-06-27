@@ -33,7 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import alphaLogo from "@/assets/alpha-logo.png";
-import sudomentorLogo from "@/assets/sudomentor-logo.png.asset.json";
+import { Logo } from "@/components/Logo";
 import { isSudomentor } from "@/utils/isSudomentor";
 import { InstallAppButton } from "./InstallAppButton";
 import { V4TenantSwitcher } from "./V4TenantSwitcher";
