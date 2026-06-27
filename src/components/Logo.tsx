@@ -11,12 +11,12 @@ interface LogoProps {
 /**
  * Sudomentor wordmark. Default height ~3.1rem; pass `className` to override.
  */
-export function Logo({ className = "h-[3.1rem]", to = "/", onDark = false }: LogoProps) {
+export function Logo({ className = "w-[14.1rem] h-auto", to = "/", onDark = false }: LogoProps) {
   const img = (
     <img
       src={(logoAsset as { url: string }).url}
       alt="Sudomentor"
-      className={`${className} w-auto object-contain shrink-0`}
+      className={`${className} object-contain shrink-0`}
       draggable={false}
     />
   );
