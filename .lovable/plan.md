@@ -1,52 +1,45 @@
-# Wire Mentor Suite to llm-caller — port prompts from lovable-hiring-hub-02
+## Problem
 
-The reference project (`@lovable-hiring-hub-02`) already has the three edge functions with battle-tested prompts and logic:
-- `supabase/functions/mentor-copilot-chat/`
-- `supabase/functions/mentor-learning-path/`
-- `supabase/functions/mock-interview/`
+`mentor-copilot-chat` → `llm-caller` returns 500:
+`column reference "provider_id" is ambiguous`
 
-I will port them as the source of truth. Prompts, mode-detection rules, LP-tag grammar, memory extraction, YouTube curation logic, interview scoring rubric — all copied verbatim from there. Only the AI provider call sites are rewritten to go through our central `llm-caller`.
+Source: the `public.llm_pick_next_key()` function declares `OUT` columns named `provider_id`, `key_id`, etc. Inside the function body, PL/pgSQL can't tell whether `provider_id` refers to the OUT parameter or to a table column. The offending statement is:
 
-## Step 1 — Read source functions
+```sql
+insert into public.llm_rr_cursor (provider_id, last_key_id, updated_at)
+values (v_provider_id, v_key_id, now())
+on conflict (provider_id) do update ...
+```
 
-For each of the three folders above I'll:
-1. `cross_project--read_project_file` on `index.ts` (and any helpers in the function's folder, plus referenced files in `supabase/functions/_shared/` and `supabase/functions/shared/`).
-2. Copy all prompts (system prompts, judge prompts, evaluator prompts), helpers (mode detection, memory builders, LP slug/normalize, YouTube fetch), and DB query shapes verbatim.
+Postgres treats `on conflict (provider_id)` as ambiguous because `provider_id` is also an OUT parameter name in scope.
 
-## Step 2 — Rewrite AI calls only
+## Fix
 
-In the source those functions call OpenAI/Groq/etc. directly. In our port every model call becomes:
+Run a migration that replaces `public.llm_pick_next_key()` with the same logic, but:
 
-- non-stream chat / JSON → `fetch(${SUPABASE_URL}/functions/v1/llm-caller, { body: { feature, mode:"chat"|"json", messages, ... } })` forwarding the user's `Authorization` header.
-- streaming chat → same endpoint with `mode:"stream"`, then pipe the SSE bytes straight to the browser.
+1. Rename OUT parameters to non-colliding names: `out_key_id`, `out_ciphertext`, `out_iv`, `out_provider_id`, `out_provider_slug`, `out_base_url`, `out_default_model`, `out_config`.
+2. Update assignments at the end to set those renamed OUTs.
+3. Keep all other behavior identical (LRU pick with `for update skip locked`, last_used/use_count bump, rr_cursor upsert).
 
-A tiny `_shared/llmCaller.ts` helper wraps these three call shapes. No prompt text lives in the helper — prompts stay in the function files exactly as copied from the source.
+Because edge functions read `pick.provider_id` and `pick.key_id` from the RPC result, also: the returned column names must stay `provider_id`, `key_id`, etc. PostgREST exposes RETURNS TABLE columns by their declared names. So instead of renaming OUTs, the safer fix is to keep TABLE column names and qualify every internal reference:
 
-## Step 3 — Reconcile schema differences
+- Replace `on conflict (provider_id)` with explicit constraint name, or qualify via a table alias: `insert into public.llm_rr_cursor as c (...) values (...) on conflict (provider_id) do update ...` — using the `as c` alias resolves the ambiguity because the conflict target then unambiguously refers to the target table's column.
 
-Source project is multi-tenant (`tenant_id`, separate `candidate_mentor_*` schema variants). Our port is single-tenant B2C with tables already provisioned (`candidate_mentor_sessions/messages/memory`, `learning_paths_catalog`, `candidate_lp_enrollments`, `candidate_lp_video_progress`, `candidate_xp_events`, `candidates`). I'll:
-- Strip `tenant_id` filters.
-- Map any column name drift (e.g. `candidate_id` → our schema) inline during the port — no migrations needed, the tables already match the original shapes used by the UI.
-- Keep RLS-safe service-role admin client for writes, user-client for auth resolution.
+Chosen approach: keep `RETURNS TABLE(... provider_id uuid, key_id uuid, ...)` signature unchanged (so the edge function and clients don't change), and fix only the ambiguous statement by adding a table alias on the upsert:
 
-## Step 4 — Action contracts already match the UI
+```sql
+insert into public.llm_rr_cursor as c (provider_id, last_key_id, updated_at)
+values (v_provider_id, v_key_id, now())
+on conflict (provider_id)
+do update set last_key_id = excluded.last_key_id, updated_at = now();
+```
 
-The UI calls (`history`, `older`, `memory`, default streaming chat with `ephemeral` for mock-interview; `find_or_create`, `list_my_paths`, `get_path`, `mark_progress`, `rate`; `next-question`, `evaluate`) line up with the source functions' contracts. No frontend changes.
+If Postgres still flags it, fall back to renaming the RETURNS TABLE columns to `o_provider_id`, `o_key_id`, ... and updating the two call sites in `supabase/functions/llm-caller/index.ts` to read `pick.o_provider_id` / `pick.o_key_id` (plus `logCall` signature).
 
-## Step 5 — Secrets
+## Steps
 
-- Required and already configured: `LLM_KEYS_ENC_SECRET`, `LOVABLE_API_KEY`, `SUPABASE_*`.
-- `YOUTUBE_API_KEY` — source uses it for LP curation. I'll request it via `add_secret` only when we hit the curation path; until then `find_or_create` returns `youtube_key_missing` with a clear message.
-- Any other source-only env vars (OpenAI/Groq keys, Azure config) are dropped — we don't need them because all AI traffic goes through `llm-caller`.
+1. Migration: `CREATE OR REPLACE FUNCTION public.llm_pick_next_key()` with the alias fix.
+2. Redeploy `llm-caller` (no code change needed if alias fix works).
+3. Verify by sending a chat message in MentorCopilot and checking `mentor-copilot-chat` logs are clean and a row appears in `llm_call_log`.
 
-## Step 6 — Verify
-
-After deploy:
-1. Open MentorCopilot → confirm SSE stream + `llm_call_log` row with `feature='mentor_chat'`.
-2. `MyLearningPaths` empty-state load → 200.
-3. Trigger `mock-interview evaluate` with a stub transcript → JSON shape matches the overlay's parser.
-4. Tail edge logs for each function.
-
-## Out of scope for this pass
-
-- Coding copilot, multi-chat, assessment generators, and other AI features from the source project. Only Mentor / LP / Mock-Interview, per your direction.
+No frontend changes required.
