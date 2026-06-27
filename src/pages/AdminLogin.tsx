@@ -1,3 +1,4 @@
+import { Logo } from "@/components/Logo";
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -63,11 +64,11 @@ export default function AdminLogin() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 p-3 bg-primary/10 rounded-full w-fit">
-            <ShieldCheck className="h-6 w-6 text-primary" />
+          <div className="mx-auto mb-4 flex justify-center">
+            <Logo className="h-[3.1rem]" to={null} />
           </div>
           <CardTitle className="text-2xl">Admin sign in</CardTitle>
-          <CardDescription>SudoMentor control panel</CardDescription>
+          <CardDescription>Sudomentor control panel</CardDescription>
         </CardHeader>
         <CardContent>
           {bootstrapping && (

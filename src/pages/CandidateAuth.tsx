@@ -1,3 +1,4 @@
+import { Logo } from "@/components/Logo";
 import { useState, useEffect } from "react";
 import { Navigate, useSearchParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -193,11 +194,7 @@ export default function CandidateAuth() {
 
         <div className="relative flex h-full flex-col">
           <Link to="/" className="inline-flex items-center gap-2 text-sm font-semibold text-white/90 hover:text-white">
-            <div className="relative h-7 w-7">
-              <div className="absolute inset-0 rounded-lg bg-white/90" />
-              <div className="absolute inset-0 grid place-items-center font-display text-[11px] font-bold text-slate-900">S</div>
-            </div>
-            <span className="font-display tracking-tight">sudo·mentor</span>
+            <Logo className="h-8" to={null} onDark />
           </Link>
 
           <div className="mt-10 hidden lg:mt-16 lg:block">

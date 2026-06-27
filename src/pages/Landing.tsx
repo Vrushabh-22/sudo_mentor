@@ -1,3 +1,4 @@
+import { Logo } from "@/components/Logo";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -55,20 +56,8 @@ function Nav() {
       }`}
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
-        <Link to="/" className="flex items-center gap-2">
-          <div className="relative h-8 w-8">
-            <div
-              className="absolute inset-0 rounded-xl"
-              style={{ background: `conic-gradient(from 180deg, ${VAPOR.v1}, ${VAPOR.v3}, ${VAPOR.v2}, ${VAPOR.v1})` }}
-            />
-            <div className="absolute inset-[3px] grid place-items-center rounded-[9px] bg-white text-[11px] font-bold text-slate-900 font-display">
-              S
-            </div>
-          </div>
-          <span className="font-display text-lg font-bold tracking-tight text-slate-900">
-            sudo<span className="text-indigo-500">·</span>mentor
-          </span>
-        </Link>
+        <Logo className="h-[3.1rem]" />
+
         <nav className="hidden items-center gap-7 text-sm font-medium text-slate-600 md:flex">
           <a href="#mentor" className="hover:text-slate-900">Mentor</a>
           <a href="#projects" className="hover:text-slate-900">Projects</a>
@@ -604,13 +593,8 @@ function Footer() {
   return (
     <footer className="border-t border-slate-100 py-10">
       <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-5 text-sm text-slate-500 sm:flex-row sm:px-8">
-        <div className="flex items-center gap-2">
-          <div
-            className="h-6 w-6 rounded-md"
-            style={{ background: `conic-gradient(from 180deg, ${VAPOR.v1}, ${VAPOR.v3}, ${VAPOR.v2})` }}
-          />
-          <span className="font-display font-bold text-slate-700">sudo·mentor</span>
-        </div>
+        <Logo className="h-8" to={null} />
+
         <div className="flex items-center gap-5">
           <a href="#" className="hover:text-slate-900">Privacy</a>
           <a href="#" className="hover:text-slate-900">Terms</a>

@@ -33,7 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import alphaLogo from "@/assets/alpha-logo.png";
-import sudomentorLogo from "@/assets/sudomentor-logo.png.asset.json";
+import { Logo } from "@/components/Logo";
 import { isSudomentor } from "@/utils/isSudomentor";
 import { InstallAppButton } from "./InstallAppButton";
 import { V4TenantSwitcher } from "./V4TenantSwitcher";
@@ -79,15 +79,17 @@ export function V4Shell({ bootstrap, onRefresh }: Props) {
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-violet-100">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-16 sm:h-20 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <img
-              src={isSudomentor ? (sudomentorLogo as { url: string }).url : alphaLogo}
-              alt={isSudomentor ? "Sudomentor" : "AlphaRecrewt"}
-              className="h-10 sm:h-16 w-auto object-contain shrink-0"
-            />
-            <div className="leading-tight hidden sm:block min-w-0">
-              <div className="font-bold text-sm truncate">{isSudomentor ? "Sudomentor" : "AlphaCampus"}</div>
-              <div className="text-[10px] text-muted-foreground truncate">Your placement copilot</div>
-            </div>
+            {isSudomentor ? (
+              <Logo className="h-8 sm:h-[3.1rem]" to={null} />
+            ) : (
+              <>
+                <img src={alphaLogo} alt="AlphaRecrewt" className="h-10 sm:h-16 w-auto object-contain shrink-0" />
+                <div className="leading-tight hidden sm:block min-w-0">
+                  <div className="font-bold text-sm truncate">AlphaCampus</div>
+                  <div className="text-[10px] text-muted-foreground truncate">Your placement copilot</div>
+                </div>
+              </>
+            )}
           </div>
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <div className="hidden sm:flex items-center gap-1 text-xs font-semibold text-amber-600">
