@@ -56,7 +56,7 @@ function Nav() {
       }`}
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
-        <Logo className="h-[3.1rem]" />
+        <Logo />
 
         <nav className="hidden items-center gap-7 text-sm font-medium text-slate-600 md:flex">
           <a href="#mentor" className="hover:text-slate-900">Mentor</a>
