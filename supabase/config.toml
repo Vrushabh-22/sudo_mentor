@@ -1,1 +1,13 @@
 project_id = "nnfaawrtzvzyqvpgvcxu"
+
+[functions.llm-caller]
+verify_jwt = true
+
+[functions.mentor-copilot-chat]
+verify_jwt = true
+
+[functions.mentor-learning-path]
+verify_jwt = true
+
+[functions.mock-interview]
+verify_jwt = true
