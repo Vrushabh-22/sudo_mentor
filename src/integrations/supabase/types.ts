@@ -35,23 +35,278 @@ export type Database = {
         }
         Relationships: []
       }
+      candidate_lp_enrollments: {
+        Row: {
+          candidate_id: string
+          completed_at: string | null
+          created_at: string
+          id: string
+          last_activity_at: string
+          last_video_id: string | null
+          path_id: string
+        }
+        Insert: {
+          candidate_id: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          last_activity_at?: string
+          last_video_id?: string | null
+          path_id: string
+        }
+        Update: {
+          candidate_id?: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          last_activity_at?: string
+          last_video_id?: string | null
+          path_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_lp_enrollments_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_lp_enrollments_path_id_fkey"
+            columns: ["path_id"]
+            isOneToOne: false
+            referencedRelation: "learning_paths_catalog"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      candidate_lp_video_progress: {
+        Row: {
+          candidate_id: string
+          completed: boolean
+          completed_at: string | null
+          duration_sec: number | null
+          id: string
+          path_id: string
+          updated_at: string
+          video_id: string
+          watched_sec: number
+        }
+        Insert: {
+          candidate_id: string
+          completed?: boolean
+          completed_at?: string | null
+          duration_sec?: number | null
+          id?: string
+          path_id: string
+          updated_at?: string
+          video_id: string
+          watched_sec?: number
+        }
+        Update: {
+          candidate_id?: string
+          completed?: boolean
+          completed_at?: string | null
+          duration_sec?: number | null
+          id?: string
+          path_id?: string
+          updated_at?: string
+          video_id?: string
+          watched_sec?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_lp_video_progress_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_lp_video_progress_path_id_fkey"
+            columns: ["path_id"]
+            isOneToOne: false
+            referencedRelation: "learning_paths_catalog"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      candidate_mentor_memory: {
+        Row: {
+          candidate_id: string
+          last_seen_at: string | null
+          last_streak_mention_on: string | null
+          last_topics: Json
+          mood_last: string | null
+          streak_days: number
+          summary: string | null
+          target_company: string | null
+          target_role: string | null
+          updated_at: string
+          weak_topics: Json
+        }
+        Insert: {
+          candidate_id: string
+          last_seen_at?: string | null
+          last_streak_mention_on?: string | null
+          last_topics?: Json
+          mood_last?: string | null
+          streak_days?: number
+          summary?: string | null
+          target_company?: string | null
+          target_role?: string | null
+          updated_at?: string
+          weak_topics?: Json
+        }
+        Update: {
+          candidate_id?: string
+          last_seen_at?: string | null
+          last_streak_mention_on?: string | null
+          last_topics?: Json
+          mood_last?: string | null
+          streak_days?: number
+          summary?: string | null
+          target_company?: string | null
+          target_role?: string | null
+          updated_at?: string
+          weak_topics?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_mentor_memory_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: true
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      candidate_mentor_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          role: string
+          session_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          role: string
+          session_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          role?: string
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_mentor_messages_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_mentor_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      candidate_mentor_sessions: {
+        Row: {
+          candidate_id: string
+          created_at: string
+          id: string
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          candidate_id: string
+          created_at?: string
+          id?: string
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          candidate_id?: string
+          created_at?: string
+          id?: string
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_mentor_sessions_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      candidate_xp_events: {
+        Row: {
+          candidate_id: string
+          created_at: string
+          event_type: string
+          id: string
+          meta: Json
+          xp: number
+        }
+        Insert: {
+          candidate_id: string
+          created_at?: string
+          event_type: string
+          id?: string
+          meta?: Json
+          xp: number
+        }
+        Update: {
+          candidate_id?: string
+          created_at?: string
+          event_type?: string
+          id?: string
+          meta?: Json
+          xp?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_xp_events_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       candidates: {
         Row: {
           avatar_url: string | null
           bio: string | null
+          branch: string | null
+          cgpa: number | null
           created_at: string
           email: string | null
+          first_name: string | null
           full_name: string | null
+          graduation_year: number | null
           headline: string | null
           id: string
+          institution: string | null
           last_active_at: string | null
+          last_active_on: string | null
+          last_name: string | null
           location: string | null
           phone: string | null
+          profile_completeness: number
           profile_extra: Json
           resume_filename: string | null
           resume_url: string | null
           skills: string[]
+          skills_v4: Json
           streak_days: number
+          stream: string | null
           updated_at: string
           user_id: string
           xp_total: number
@@ -59,19 +314,29 @@ export type Database = {
         Insert: {
           avatar_url?: string | null
           bio?: string | null
+          branch?: string | null
+          cgpa?: number | null
           created_at?: string
           email?: string | null
+          first_name?: string | null
           full_name?: string | null
+          graduation_year?: number | null
           headline?: string | null
           id?: string
+          institution?: string | null
           last_active_at?: string | null
+          last_active_on?: string | null
+          last_name?: string | null
           location?: string | null
           phone?: string | null
+          profile_completeness?: number
           profile_extra?: Json
           resume_filename?: string | null
           resume_url?: string | null
           skills?: string[]
+          skills_v4?: Json
           streak_days?: number
+          stream?: string | null
           updated_at?: string
           user_id: string
           xp_total?: number
@@ -79,24 +344,108 @@ export type Database = {
         Update: {
           avatar_url?: string | null
           bio?: string | null
+          branch?: string | null
+          cgpa?: number | null
           created_at?: string
           email?: string | null
+          first_name?: string | null
           full_name?: string | null
+          graduation_year?: number | null
           headline?: string | null
           id?: string
+          institution?: string | null
           last_active_at?: string | null
+          last_active_on?: string | null
+          last_name?: string | null
           location?: string | null
           phone?: string | null
+          profile_completeness?: number
           profile_extra?: Json
           resume_filename?: string | null
           resume_url?: string | null
           skills?: string[]
+          skills_v4?: Json
           streak_days?: number
+          stream?: string | null
           updated_at?: string
           user_id?: string
           xp_total?: number
         }
         Relationships: []
+      }
+      learning_paths_catalog: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          estimated_hours: number
+          id: string
+          is_published: boolean
+          level: string
+          modules: Json
+          rating_avg: number
+          rating_count: number
+          skill_primary: string
+          skills: string[]
+          slug: string
+          source: string
+          stream: string[]
+          tags: string[]
+          title: string
+          updated_at: string
+          usage_count: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          estimated_hours?: number
+          id?: string
+          is_published?: boolean
+          level?: string
+          modules?: Json
+          rating_avg?: number
+          rating_count?: number
+          skill_primary: string
+          skills?: string[]
+          slug: string
+          source?: string
+          stream?: string[]
+          tags?: string[]
+          title: string
+          updated_at?: string
+          usage_count?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          estimated_hours?: number
+          id?: string
+          is_published?: boolean
+          level?: string
+          modules?: Json
+          rating_avg?: number
+          rating_count?: number
+          skill_primary?: string
+          skills?: string[]
+          slug?: string
+          source?: string
+          stream?: string[]
+          tags?: string[]
+          title?: string
+          updated_at?: string
+          usage_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "learning_paths_catalog_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       llm_api_keys: {
         Row: {
