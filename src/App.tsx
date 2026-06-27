@@ -6,6 +6,8 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { CandidateAuthProvider } from "@/hooks/useCandidateAuth";
 import CandidatePortalV4 from "@/pages/CandidatePortalV4";
 import CandidateAuth from "@/pages/CandidateAuth";
+import AdminLogin from "@/pages/AdminLogin";
+import AdminShell from "@/pages/AdminShell";
 
 const queryClient = new QueryClient();
 
@@ -14,13 +16,26 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <BrowserRouter>
-          <CandidateAuthProvider>
-            <Routes>
-              <Route path="/" element={<CandidatePortalV4 />} />
-              <Route path="/auth" element={<CandidateAuth />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </CandidateAuthProvider>
+          <Routes>
+            {/* Admin routes — no candidate auth context needed */}
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin" element={<AdminShell />} />
+            <Route path="/admin/*" element={<Navigate to="/admin" replace />} />
+
+            {/* Candidate routes */}
+            <Route
+              path="/*"
+              element={
+                <CandidateAuthProvider>
+                  <Routes>
+                    <Route path="/" element={<CandidatePortalV4 />} />
+                    <Route path="/auth" element={<CandidateAuth />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </CandidateAuthProvider>
+              }
+            />
+          </Routes>
         </BrowserRouter>
         <Toaster />
         <Sonner />

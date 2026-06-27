@@ -1,14 +1,12 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import type { TenantChoice } from "@/components/candidate/TenantPickerModal";
 
 interface CandidateUser {
-  id: string;
+  id: string;            // auth user id
   email: string;
-  candidateId: string;
+  candidateId: string;   // candidates.id
   isVerified: boolean;
-  tenantId: string;
 }
 
 interface CandidateAuthContextType {
@@ -16,64 +14,34 @@ interface CandidateAuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   loading: boolean;
-  pendingTenantChoices: TenantChoice[] | null;
+  // Kept for compatibility with existing components (no-op single-tenant).
+  pendingTenantChoices: null;
   selectTenant: (candidateId: string, tenantId: string) => Promise<void>;
   setActiveCandidate: (candidateId: string, tenantId: string) => Promise<void>;
 }
 
 const CandidateAuthContext = createContext<CandidateAuthContextType | undefined>(undefined);
 
-const SESSION_CANDIDATE_KEY = "candidate_session_user";
-
-type EdgeResolveResult =
-  | { kind: "user"; user: CandidateUser }
-  | { kind: "picker"; choices: TenantChoice[] }
-  | { kind: "none" };
-
-async function resolveCandidateViaEdge(): Promise<EdgeResolveResult> {
-  try {
-    const { data, error } = await supabase.functions.invoke("resolve-candidate-by-email", {
-      body: { preferCandidate: true, portal: "candidate" },
-    });
-    if (error) return { kind: "none" };
-    if (data?.needsTenantSelection && Array.isArray(data?.candidates) && data.candidates.length > 0) {
-      return { kind: "picker", choices: data.candidates as TenantChoice[] };
+async function resolveCandidate(authUserId: string, email: string): Promise<CandidateUser | null> {
+  // Trigger auto-creates the candidates row; we just fetch it (with one retry).
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data } = await supabase
+      .from("candidates")
+      .select("id")
+      .eq("user_id", authUserId)
+      .maybeSingle();
+    if (data?.id) {
+      return { id: authUserId, email, candidateId: data.id as string, isVerified: true };
     }
-    if (data?.user) return { kind: "user", user: data.user as CandidateUser };
-    return { kind: "none" };
-  } catch {
-    return { kind: "none" };
+    // Fallback insert in case trigger didn't fire (e.g. magic link migration).
+    await supabase.from("candidates").insert({ user_id: authUserId, email }).select("id").maybeSingle();
   }
-}
-
-function readSessionUser(): CandidateUser | null {
-  try {
-    const raw = sessionStorage.getItem(SESSION_CANDIDATE_KEY);
-    if (!raw) return null;
-    const u = JSON.parse(raw);
-    if (u?.id && u?.email && u?.tenantId && u?.candidateId) return u as CandidateUser;
-  } catch {}
   return null;
-}
-
-function writeSessionUser(u: CandidateUser) {
-  try {
-    sessionStorage.setItem(SESSION_CANDIDATE_KEY, JSON.stringify(u));
-    localStorage.setItem("candidate_user", JSON.stringify(u));
-  } catch {}
-}
-
-function clearStoredCandidate() {
-  try {
-    sessionStorage.removeItem(SESSION_CANDIDATE_KEY);
-    localStorage.removeItem("candidate_user");
-  } catch {}
 }
 
 export function CandidateAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CandidateUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pendingTenantChoices, setPendingTenantChoices] = useState<TenantChoice[] | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -82,60 +50,26 @@ export function CandidateAuthProvider({ children }: { children: ReactNode }) {
     const hydrate = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (cancelled) return;
-
       if (!session?.user) {
-        clearStoredCandidate();
-        setUser(null);
-        setPendingTenantChoices(null);
-        setLoading(false);
-        return;
-      }
-
-      if (localStorage.getItem("preferred_portal") === "recruiter") {
-        clearStoredCandidate();
         setUser(null);
         setLoading(false);
         return;
       }
-
-      const sessionUser = readSessionUser();
-      if (sessionUser && sessionUser.email.toLowerCase() === session.user.email?.toLowerCase()) {
-        setUser(sessionUser);
-        setPendingTenantChoices(null);
-        setLoading(false);
-        return;
-      }
-
-      const resolved = await resolveCandidateViaEdge();
+      const resolved = await resolveCandidate(session.user.id, session.user.email || "");
       if (cancelled) return;
-
-      if (resolved.kind === "user") {
-        writeSessionUser(resolved.user);
-        setUser(resolved.user);
-        setPendingTenantChoices(null);
-      } else if (resolved.kind === "picker") {
-        clearStoredCandidate();
-        setUser(null);
-        setPendingTenantChoices(resolved.choices);
-      } else {
-        clearStoredCandidate();
-        setUser(null);
-        setPendingTenantChoices(null);
-      }
+      setUser(resolved);
       setLoading(false);
     };
 
     hydrate();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
-        clearStoredCandidate();
         setUser(null);
-        setPendingTenantChoices(null);
         return;
       }
-      if (event === "SIGNED_IN" && session?.user) {
-        setTimeout(() => { hydrate(); }, 0);
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        setTimeout(hydrate, 0);
       }
     });
 
@@ -146,85 +80,35 @@ export function CandidateAuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    try {
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
-      if (authError) {
-        toast({
-          title: "Login Failed",
-          description: "Please check your email and password and try again.",
-          variant: "destructive",
-        });
-        return { error: authError };
-      }
-
-      if (!authData?.user) return { error: new Error("No user") };
-
-      const resolved = await resolveCandidateViaEdge();
-      if (resolved.kind === "user") {
-        writeSessionUser(resolved.user);
-        setUser(resolved.user);
-        setPendingTenantChoices(null);
-        toast({ title: "Welcome back!", description: "You have been signed in successfully." });
-        return { error: null };
-      }
-      if (resolved.kind === "picker") {
-        clearStoredCandidate();
-        setUser(null);
-        setPendingTenantChoices(resolved.choices);
-        return { error: null };
-      }
-
-      toast({
-        title: "Login Failed",
-        description: "Could not resolve your candidate profile.",
-        variant: "destructive",
-      });
-      return { error: "Could not resolve candidate identity" };
-    } catch (error: any) {
-      toast({
-        title: "Login Failed",
-        description: "Please check your email and password and try again.",
-        variant: "destructive",
-      });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      toast({ title: "Login failed", description: error.message, variant: "destructive" });
       return { error };
     }
-  };
-
-  const selectTenant = async (candidateId: string, tenantId: string) => {
-    const { data, error } = await supabase.functions.invoke("select-candidate-tenant", {
-      body: { candidateId, tenantId },
-    });
-    if (error || !data?.user) {
-      toast({
-        title: "Could not switch organization",
-        description: "Please try again.",
-        variant: "destructive",
-      });
-      throw error || new Error("No user returned");
-    }
-    const resolved = data.user as CandidateUser;
-    writeSessionUser(resolved);
-    localStorage.setItem("preferred_portal", "candidate");
-    setPendingTenantChoices(null);
-    setUser(resolved);
-  };
-
-  const setActiveCandidate = async (candidateId: string, tenantId: string) => {
-    await selectTenant(candidateId, tenantId);
-    window.dispatchEvent(new Event("candidate-tenant-changed"));
+    toast({ title: "Welcome back!" });
+    return { error: null };
   };
 
   const signOut = async () => {
     try { await supabase.auth.signOut(); } catch {}
-    clearStoredCandidate();
-    localStorage.removeItem("preferred_portal");
     setUser(null);
-    setPendingTenantChoices(null);
     window.location.href = "/auth";
   };
 
+  const noopSelect = async () => { /* tenants removed */ };
+
   return (
-    <CandidateAuthContext.Provider value={{ user, signIn, signOut, loading, pendingTenantChoices, selectTenant, setActiveCandidate }}>
+    <CandidateAuthContext.Provider
+      value={{
+        user,
+        signIn,
+        signOut,
+        loading,
+        pendingTenantChoices: null,
+        selectTenant: noopSelect,
+        setActiveCandidate: noopSelect,
+      }}
+    >
       {children}
     </CandidateAuthContext.Provider>
   );
@@ -232,8 +116,6 @@ export function CandidateAuthProvider({ children }: { children: ReactNode }) {
 
 export function useCandidateAuth() {
   const context = useContext(CandidateAuthContext);
-  if (context === undefined) {
-    throw new Error("useCandidateAuth must be used within a CandidateAuthProvider");
-  }
+  if (!context) throw new Error("useCandidateAuth must be used within a CandidateAuthProvider");
   return context;
 }
