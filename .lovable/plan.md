@@ -1,46 +1,73 @@
-## Redesign `/auth` — split-screen, on-brand
+# Enable Google Sign-In for Candidates — End to End
 
-Make the candidate sign-in page feel like a continuation of the landing: minimal, elegant, Vapor Chrome (Sora display + Manrope body, lavender→cyan iridescence). No "Candidate Portal" title.
+The auth logs confirm the current error: `400: Unsupported provider: provider is not enabled`. The frontend code is already calling `signInWithOAuth({ provider: 'google' })` correctly — what's missing is the configuration on Google Cloud and Supabase. This is a configuration walkthrough, not a code change.
 
-### Layout (desktop ≥ lg)
-Two-column split, full-height.
+## Step 1 — Create Google OAuth Client (Google Cloud Console)
 
-```text
-┌──────────────────────────┬─────────────────────────┐
-│  BRAND PANEL (left 55%)  │  FORM PANEL (right 45%) │
-│  - iridescent gradient   │  - clean white          │
-│  - sudo·mentor wordmark  │  - "Welcome back"       │
-│  - oversized tagline     │  - Google/GitHub/LI     │
-│  - 3 feature chips       │  - divider              │
-│  - testimonial quote     │  - email + password     │
-│                          │  - Privacy/Terms note   │
-└──────────────────────────┴─────────────────────────┘
+1. Open https://console.cloud.google.com/ → create/select a project (e.g. "Sudo Mentor").
+2. **APIs & Services → OAuth consent screen**
+   - User type: External
+   - App name: Sudo Mentor
+   - Support email: your email
+   - Authorized domains: `supabase.co`, `lovable.app`, and your custom domain if any
+   - Scopes: `openid`, `userinfo.email`, `userinfo.profile`
+   - Add yourself as a Test user (until you publish the app)
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID**
+   - Application type: **Web application**
+   - Name: Sudo Mentor Web
+   - **Authorized JavaScript origins:**
+     - `https://sudo-mentor.lovable.app`
+     - `https://id-preview--6398ffbe-d467-4ccf-bcfe-b68f41371f32.lovable.app`
+     - `https://6398ffbe-d467-4ccf-bcfe-b68f41371f32.lovableproject.com`
+     - `http://localhost:8080` (optional, local dev)
+   - **Authorized redirect URIs (exact, single value required by Supabase):**
+     - `https://nnfaawrtzvzyqvpgvcxu.supabase.co/auth/v1/callback`
+4. Save → copy the **Client ID** and **Client Secret**.
+
+## Step 2 — Enable Google Provider in Supabase
+
+1. Open **Authentication → Providers → Google** in the Supabase dashboard for project `nnfaawrtzvzyqvpgvcxu`.
+2. Toggle **Enable Sign in with Google** ON.
+3. Paste the **Client ID** and **Client Secret** from Step 1.
+4. Leave "Skip nonce check" OFF.
+5. Save.
+
+## Step 3 — Set Site URL & Redirect Allow-list (Supabase)
+
+**Authentication → URL Configuration:**
+- **Site URL:** `https://sudo-mentor.lovable.app`
+- **Redirect URLs (add each):**
+  - `https://sudo-mentor.lovable.app/**`
+  - `https://id-preview--6398ffbe-d467-4ccf-bcfe-b68f41371f32.lovable.app/**`
+  - `https://6398ffbe-d467-4ccf-bcfe-b68f41371f32.lovableproject.com/**`
+  - `http://localhost:8080/**`
+
+This is what made past logins bounce to `alpharecrewt.ai` — Supabase falls back to the Site URL when the `redirectTo` isn't whitelisted.
+
+## Step 4 — Verify the Existing Frontend Flow (no code change expected)
+
+`src/pages/CandidateAuth.tsx` already calls:
+```ts
+supabase.auth.signInWithOAuth({
+  provider: 'google',
+  options: { redirectTo: `${window.location.origin}/auth` }
+})
 ```
+and `handle_new_user` trigger auto-creates the `candidates` row + `candidate` role on first sign-in. No code edits needed unless verification surfaces a bug.
 
-Mobile: brand panel collapses to a slim top band (wordmark + one-line tagline) above the form.
+## Step 5 — Test End-to-End
 
-### Brand panel content
-- Top: small `sudo·mentor` lockup + back-arrow link to `/`.
-- Headline (Sora, 5xl): *"Welcome to your career copilot."*
-- Sub (Manrope): *"Mentor. Projects. Practice. Jobs — all in one place."*
-- 3 chip rows with icons (Brain "AI mentor that remembers you", Code2 "Internship-grade projects", Trophy "Climb your campus board").
-- Bottom: subtle testimonial card — *"Got my first internship in 6 weeks." — Aman, IIT-D*.
-- Two floating animated blobs (framer-motion) using #c4b5fd / #67e8f9 / #818cf8 for depth, mix-blend overlay dot pattern at low opacity.
+1. Open `https://sudo-mentor.lovable.app/auth` → click **Continue with Google**.
+2. Confirm Google consent screen shows "Sudo Mentor".
+3. After consent, land back on `/auth` → auto-redirect to `/portal`.
+4. Verify in Supabase **Authentication → Users** a new row appears, and `public.candidates` has the matching profile.
 
-### Form panel content
-- Replace `<CardTitle>Candidate Portal</CardTitle>` with `<h1>Welcome back</h1>` + `<p>Sign in to continue your journey</p>`.
-- Drop the Briefcase badge.
-- Keep all existing auth logic (Google / GitHub / LinkedIn OAuth, email+password, autoLogin token handler, redirects to `/portal`, toast errors). No behavior changes — pure presentation.
-- Add Privacy / Terms footer line (placeholder links).
-- Add "← Back to home" link at top of form column on mobile (already covered on desktop by brand panel link).
-- Add "New here? Pick any social login — we'll set up your account." helper line below the social block.
+## What I need from you
 
-### Files
-- Edit `src/pages/CandidateAuth.tsx` — replace JSX from line ~160 onwards (the return block), keep all hooks/handlers untouched.
+Just confirm once Steps 1–3 are done (or share any error you see) and I'll run the end-to-end verification. No secrets need to be pasted into this chat — Client ID/Secret live only inside the Supabase dashboard.
 
-No new deps; framer-motion already installed.
-
-### Verification
-- `bunx tsgo --noEmit` clean.
-- Visual check at 1280 and 390 wide via the existing preview.
-- Click "Continue with Google" still triggers the OAuth flow.
+<presentation-actions>
+<presentation-link href="https://supabase.com/dashboard/project/nnfaawrtzvzyqvpgvcxu/auth/providers">Supabase Auth Providers</presentation-link>
+<presentation-link href="https://supabase.com/dashboard/project/nnfaawrtzvzyqvpgvcxu/auth/url-configuration">Supabase URL Configuration</presentation-link>
+<presentation-link href="https://console.cloud.google.com/apis/credentials">Google Cloud Credentials</presentation-link>
+</presentation-actions>
