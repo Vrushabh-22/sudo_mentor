@@ -8,6 +8,7 @@ import CandidatePortalV4 from "@/pages/CandidatePortalV4";
 import CandidateAuth from "@/pages/CandidateAuth";
 import AdminLogin from "@/pages/AdminLogin";
 import AdminShell from "@/pages/AdminShell";
+import Landing from "@/pages/Landing";
 
 const queryClient = new QueryClient();
 
@@ -28,7 +29,9 @@ export default function App() {
               element={
                 <CandidateAuthProvider>
                   <Routes>
-                    <Route path="/" element={<CandidatePortalV4 />} />
+                    <Route path="/" element={<Landing />} />
+                    <Route path="/portal" element={<CandidatePortalV4 />} />
+                    <Route path="/portal/*" element={<CandidatePortalV4 />} />
                     <Route path="/auth" element={<CandidateAuth />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>

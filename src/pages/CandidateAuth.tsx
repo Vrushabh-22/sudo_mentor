@@ -96,7 +96,7 @@ export default function CandidateAuth() {
       );
 
       toast({ title: "Welcome!", description: "Successfully logged in. Redirecting to your portal..." });
-      window.location.href = "/";
+      window.location.href = "/portal";
     } catch (error: any) {
       const message = error?.message || "Unable to auto-login. Please use the manual login form below.";
       setAutoLoginError(message);
@@ -109,7 +109,7 @@ export default function CandidateAuth() {
   const handleSocialLogin = async (provider: "google" | "github" | "azure") => {
     setSocialLoading(provider);
     try {
-      const intendedRedirect = searchParams.get("redirect") || "/";
+      const intendedRedirect = searchParams.get("redirect") || "/portal";
       try {
         sessionStorage.setItem("candidate_post_login_redirect", intendedRedirect);
       } catch {}
@@ -132,7 +132,7 @@ export default function CandidateAuth() {
     }
   };
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to="/portal" replace />;
 
   if (isAutoLoggingIn || (loading && user)) {
     return (
