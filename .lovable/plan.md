@@ -1,113 +1,73 @@
-## LLM Providers + central `llm_caller` — plan
+## Landing Page Plan — Sudo Mentor
 
-Replace the current "Azure OpenAI + Default LLM" cards in `/admin → Settings` with a proper provider/key management system, and route every AI call in the portal through one edge function with round-robin key rotation, caching, and observability.
+Public marketing page at `/` to attract college students. Vapor Chrome palette (#c4b5fd, #818cf8, #67e8f9, #a5f3fc), Sora + Manrope typography, bento grid layout. Minimal, elegant, slightly futuristic.
 
-### 1. Database (new tables, separate from `app_settings`)
+### Routing changes
+- `/` → new `Landing.tsx` (public, no auth)
+- `/portal` → existing `CandidatePortalV4` (was at `/`)
+- `/auth`, `/admin`, `/admin/login` — unchanged
+- If a signed-in candidate hits `/`, show a subtle "Open my portal →" pill in the nav (no forced redirect — landing stays linkable).
+- Update internal links (post-login redirect, sidebar logo, share intents) from `/` → `/portal`.
 
-```text
-llm_providers
-  id uuid pk
-  slug text unique         -- 'openai' | 'azure_openai' | 'groq' | 'anthropic' | 'lovable' | 'gemini'
-  display_name text
-  base_url text            -- optional override (Azure endpoint, self-hosted, etc.)
-  default_model text
-  config jsonb             -- provider-specific (api_version, deployment, region…)
-  enabled boolean
-  is_active boolean        -- exactly one row true = currently selected provider
-  created_at / updated_at
+### Page sections (bento-first)
 
-llm_api_keys                -- the "pool"
-  id uuid pk
-  provider_id uuid fk -> llm_providers
-  label text                -- "prod-key-1"
-  key_ciphertext text       -- encrypted with pgcrypto (pgp_sym_encrypt + vault key)
-  key_last4 text            -- shown in UI
-  enabled boolean
-  weight int default 1      -- round-robin weight
-  last_used_at timestamptz
-  use_count bigint default 0
-  fail_count int default 0
-  cooldown_until timestamptz -- auto-disable on 429/5xx
-  created_at
+1. **Top nav** — Sudo Mentor wordmark, anchor links (Mentor, Projects, Practice, Jobs, App), "Sign in" + "Get started" CTAs. Glass blur on scroll.
 
-llm_call_log                -- lightweight observability (partitioned monthly for B2C scale)
-  id uuid, provider_id, key_id, feature text, model text,
-  status int, latency_ms int, prompt_tokens int, completion_tokens int,
-  cache_hit boolean, error text, created_at timestamptz
+2. **Hero** — Two-column on desktop, stacked on mobile.
+   - Left: oversized Sora headline ("Your AI mentor for the career you actually want."), supporting line, two CTAs (Start free → /auth, Watch how it works → scroll), trust row ("Built for campuses · Free for students").
+   - Right: floating mock device showing MentorCopilot chat bubble + XP/streak chip + a leaderboard rank pill. Soft iridescent blobs in background (CSS gradients, no images — pure tokens).
 
-llm_cache                   -- optional response cache
-  cache_key text pk         -- sha256(provider|model|messages|tools|temp)
-  response jsonb
-  expires_at timestamptz
-```
+3. **Bento grid (the core)** — 6-tile asymmetric grid showcasing every migrated feature:
+   - **Large tile (2x2): Sudo Mentor Copilot** — animated chat snippet, "Ask anything. Get a learning path."
+   - **Tile: Internship Projects** — code/insights motif, "Build real projects. Get AI-evaluated."
+   - **Tile: Daily Practice** — quiz card mock, "2 quizzes a day. Compounding skill."
+   - **Tile: Campus Leaderboard** — rank chips, "Climb your campus board."
+   - **Tile: Jobs & Applications** — role cards, "Apply with one tap."
+   - **Wide tile: MyBoard + Notes** — canvas thumbnail, "Your second brain for college."
 
-RLS: admin-only read/write on providers/keys/log; service_role full access (edge function uses it). Keys never returned to client unencrypted — admin UI only shows `label` + `key_last4`.
+4. **Mobile app teaser** — Split section: phone mockup (CSS frame, gradient screen) + "Coming soon to iOS & Android" with email-capture style "Notify me" (visual only for now, posts to a `landing_waitlist` future table — wire later, button shows toast "We'll let you know").
 
-Encryption: pgcrypto symmetric using `LLM_KEYS_ENC_SECRET` (generated secret, edge-function side). All encrypt/decrypt happens inside the edge function or SECURITY DEFINER helpers — never in the browser.
+5. **How it works** — 3-step horizontal: Sign in → Chat with mentor → Earn XP, build projects, get hired.
 
-### 2. Central edge function: `llm-caller`
+6. **Social proof strip** — College logos placeholder row + stat counters (Students, Projects shipped, XP earned) — static for now.
 
-Single boundary for **every** AI call in the portal (Mentor, Practice, Project eval, note-cover, summaries, etc.).
+7. **Final CTA band** — Iridescent gradient panel, "Join the Sudo Mentor beta", Get started button.
 
-Contract:
-```
-POST /functions/v1/llm-caller
-{
-  feature: "mentor.chat" | "practice.quiz" | "project.eval" | ...,
-  mode: "chat" | "stream" | "json",
-  messages: [...],          // OpenAI-style
-  schema?: {...},           // for structured output
-  temperature?, max_tokens?, tools?,
-  cache?: { ttl_seconds: number } // opt-in caching
-}
-```
+8. **Footer** — Minimal: logo, links (Privacy, Terms, Contact), © 2026.
 
-Internals (in this order):
-1. Auth: require valid candidate or admin JWT.
-2. Load active provider + enabled, non-cooling keys (cached in memory ~30s).
-3. Cache check (if `cache.ttl_seconds` and `mode != stream`).
-4. Round-robin key pick (advance pointer in Postgres via `SELECT ... FOR UPDATE SKIP LOCKED` on a tiny `llm_rr_cursor` row, weighted).
-5. Build provider-specific request (OpenAI / Azure / Groq / Gemini adapters in one file).
-6. Stream via SSE for `mode=stream`; otherwise return JSON.
-7. On 429/5xx: mark key `cooldown_until = now() + Nm`, retry next key (max N attempts), log failure.
-8. On success: update `last_used_at`, increment counters, log latency/tokens, write cache if requested.
+### Design system additions
+- Install fonts: `@fontsource/sora`, `@fontsource/manrope` via bun add; import in `main.tsx`; register in `tailwind.config.ts` as `font-display` (Sora) and `font-sans` (Manrope) — scoped so it does not break the existing portal which uses default fonts.
+- Add Vapor Chrome tokens to `index.css` under a `.landing` scope (or as additional CSS vars `--vapor-1..4`) so the existing portal tokens stay untouched.
+- Use framer-motion (already permitted) for hero blob drift, bento card hover lift, scroll-in fade.
+- All tiles use semantic tokens; no hardcoded colors in JSX.
 
-All other functions (mentor, project-eval, etc.) **must** call `llm-caller` via internal `fetch` — no `LOVABLE_API_KEY` / OpenAI SDK usage anywhere else. A `_shared/llmClient.ts` helper exposes `callLLM()` and `streamLLM()` so functions don't duplicate fetch boilerplate.
+### Files to create
+- `src/pages/Landing.tsx` — page shell
+- `src/components/landing/Nav.tsx`
+- `src/components/landing/Hero.tsx`
+- `src/components/landing/BentoGrid.tsx` (+ 6 tile subcomponents inline)
+- `src/components/landing/MobileAppTeaser.tsx`
+- `src/components/landing/HowItWorks.tsx`
+- `src/components/landing/SocialProof.tsx`
+- `src/components/landing/FinalCTA.tsx`
+- `src/components/landing/Footer.tsx`
 
-### 3. Admin UI changes (`/admin → Settings`)
+### Files to edit
+- `src/App.tsx` — swap routes (`/` → Landing, `/portal/*` → portal).
+- `src/main.tsx` — font imports.
+- `src/pages/CandidateAuth.tsx` — post-login redirect to `/portal`.
+- `src/components/candidate/v4/V4Shell.tsx` — logo link to `/portal`, "Sign out" returns to `/`.
+- `src/components/candidate/v4/share/shareIntents.ts` — public share URLs.
+- `tailwind.config.ts` — add Sora/Manrope families.
+- `index.html` — title, meta description, OG tags for the landing page.
 
-Replace Azure + Default LLM cards with a single "LLM Providers" section:
+### Out of scope (later)
+- Real waitlist table + edge function for "Notify me".
+- Real campus logos and testimonials.
+- App store deep links once apps ship.
+- i18n.
 
-- **Provider selector** (dropdown): OpenAI / Azure OpenAI / Groq / Anthropic / Gemini / Lovable AI Gateway. Only one is "Active".
-- **Per-provider config form** (shown when that provider row is selected): base_url, default_model, api_version/deployment (Azure-only fields appear conditionally), temperature default.
-- **API key pool table** for the active provider:
-  - Columns: Label, key (•••• + last 4), enabled toggle, weight, last used, success/fail counts, cooldown, delete.
-  - "Add key" button → modal asking label + raw key; submitted to `admin-llm-keys` edge function which encrypts + inserts. Raw key never stored in React state beyond submit.
-- **Test button** per key → calls `llm-caller` with `feature=admin.test` and shows latency/model echo.
-
-Google OAuth + Branding cards stay as-is in `app_settings`.
-
-### 4. Supporting edge functions
-
-- `admin-llm-keys` — admin-only CRUD for keys (encrypts on insert, never returns plaintext).
-- `llm-caller` — the only AI call boundary.
-- Refactor any existing/future feature functions (mentor chat, project eval, etc.) to call `llm-caller` exclusively. Phase 1 ships the plumbing; we wire features as each is built.
-
-### 5. Secrets
-
-- `LLM_KEYS_ENC_SECRET` — generated, used by pgcrypto for key encryption.
-- `LOVABLE_API_KEY` — kept; "Lovable AI Gateway" becomes one selectable provider so we always have a working fallback.
-
-### 6. Scale notes (lakhs of users)
-
-- Provider/keys loaded with 30s in-memory TTL inside the function instance — avoids hitting DB on every call.
-- Round-robin cursor uses a single row + `SKIP LOCKED` so concurrent function instances don't contend.
-- `llm_call_log` declared as monthly partitioned table from day one.
-- `llm_cache` GC via a daily cron deleting `expires_at < now()`.
-- All key reads via SECURITY DEFINER RPC so RLS stays strict.
-
-### Out of scope for this step
-- Wiring existing components to `llm-caller` (done feature-by-feature in their phases).
-- Per-tenant key isolation (single-tenant B2C, not needed).
-
-If approved I'll: run the migration, generate `LLM_KEYS_ENC_SECRET`, ship the two edge functions, and replace the Azure/Default-LLM cards in `AdminSettings` with the new Provider + Key-pool UI.
+### Verification
+- `bun run build` clean.
+- Playwright snapshot of `/` at 1280×1800 and 390×844 to confirm bento renders and CTAs link to `/auth` and `/portal`.
+- Manual click-through: `/` → "Sign in" → `/auth` → success → `/portal`.
