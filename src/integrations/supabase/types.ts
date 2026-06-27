@@ -98,6 +98,439 @@ export type Database = {
         }
         Relationships: []
       }
+      llm_api_keys: {
+        Row: {
+          cooldown_until: string | null
+          created_at: string
+          enabled: boolean
+          fail_count: number
+          id: string
+          key_ciphertext: string
+          key_iv: string
+          key_last4: string
+          label: string
+          last_used_at: string | null
+          provider_id: string
+          use_count: number
+          weight: number
+        }
+        Insert: {
+          cooldown_until?: string | null
+          created_at?: string
+          enabled?: boolean
+          fail_count?: number
+          id?: string
+          key_ciphertext: string
+          key_iv: string
+          key_last4: string
+          label: string
+          last_used_at?: string | null
+          provider_id: string
+          use_count?: number
+          weight?: number
+        }
+        Update: {
+          cooldown_until?: string | null
+          created_at?: string
+          enabled?: boolean
+          fail_count?: number
+          id?: string
+          key_ciphertext?: string
+          key_iv?: string
+          key_last4?: string
+          label?: string
+          last_used_at?: string | null
+          provider_id?: string
+          use_count?: number
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "llm_api_keys_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "llm_providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      llm_cache: {
+        Row: {
+          cache_key: string
+          created_at: string
+          expires_at: string
+          model: string | null
+          response: Json
+        }
+        Insert: {
+          cache_key: string
+          created_at?: string
+          expires_at: string
+          model?: string | null
+          response: Json
+        }
+        Update: {
+          cache_key?: string
+          created_at?: string
+          expires_at?: string
+          model?: string | null
+          response?: Json
+        }
+        Relationships: []
+      }
+      llm_call_log: {
+        Row: {
+          cache_hit: boolean
+          completion_tokens: number | null
+          created_at: string
+          error: string | null
+          feature: string
+          id: string
+          key_id: string | null
+          latency_ms: number | null
+          model: string | null
+          prompt_tokens: number | null
+          provider_id: string | null
+          status: number | null
+          user_id: string | null
+        }
+        Insert: {
+          cache_hit?: boolean
+          completion_tokens?: number | null
+          created_at?: string
+          error?: string | null
+          feature: string
+          id?: string
+          key_id?: string | null
+          latency_ms?: number | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_id?: string | null
+          status?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          cache_hit?: boolean
+          completion_tokens?: number | null
+          created_at?: string
+          error?: string | null
+          feature?: string
+          id?: string
+          key_id?: string | null
+          latency_ms?: number | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_id?: string | null
+          status?: number | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      llm_call_log_2026_06: {
+        Row: {
+          cache_hit: boolean
+          completion_tokens: number | null
+          created_at: string
+          error: string | null
+          feature: string
+          id: string
+          key_id: string | null
+          latency_ms: number | null
+          model: string | null
+          prompt_tokens: number | null
+          provider_id: string | null
+          status: number | null
+          user_id: string | null
+        }
+        Insert: {
+          cache_hit?: boolean
+          completion_tokens?: number | null
+          created_at?: string
+          error?: string | null
+          feature: string
+          id?: string
+          key_id?: string | null
+          latency_ms?: number | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_id?: string | null
+          status?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          cache_hit?: boolean
+          completion_tokens?: number | null
+          created_at?: string
+          error?: string | null
+          feature?: string
+          id?: string
+          key_id?: string | null
+          latency_ms?: number | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_id?: string | null
+          status?: number | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      llm_call_log_2026_07: {
+        Row: {
+          cache_hit: boolean
+          completion_tokens: number | null
+          created_at: string
+          error: string | null
+          feature: string
+          id: string
+          key_id: string | null
+          latency_ms: number | null
+          model: string | null
+          prompt_tokens: number | null
+          provider_id: string | null
+          status: number | null
+          user_id: string | null
+        }
+        Insert: {
+          cache_hit?: boolean
+          completion_tokens?: number | null
+          created_at?: string
+          error?: string | null
+          feature: string
+          id?: string
+          key_id?: string | null
+          latency_ms?: number | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_id?: string | null
+          status?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          cache_hit?: boolean
+          completion_tokens?: number | null
+          created_at?: string
+          error?: string | null
+          feature?: string
+          id?: string
+          key_id?: string | null
+          latency_ms?: number | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_id?: string | null
+          status?: number | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      llm_call_log_2026_08: {
+        Row: {
+          cache_hit: boolean
+          completion_tokens: number | null
+          created_at: string
+          error: string | null
+          feature: string
+          id: string
+          key_id: string | null
+          latency_ms: number | null
+          model: string | null
+          prompt_tokens: number | null
+          provider_id: string | null
+          status: number | null
+          user_id: string | null
+        }
+        Insert: {
+          cache_hit?: boolean
+          completion_tokens?: number | null
+          created_at?: string
+          error?: string | null
+          feature: string
+          id?: string
+          key_id?: string | null
+          latency_ms?: number | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_id?: string | null
+          status?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          cache_hit?: boolean
+          completion_tokens?: number | null
+          created_at?: string
+          error?: string | null
+          feature?: string
+          id?: string
+          key_id?: string | null
+          latency_ms?: number | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_id?: string | null
+          status?: number | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      llm_call_log_2026_09: {
+        Row: {
+          cache_hit: boolean
+          completion_tokens: number | null
+          created_at: string
+          error: string | null
+          feature: string
+          id: string
+          key_id: string | null
+          latency_ms: number | null
+          model: string | null
+          prompt_tokens: number | null
+          provider_id: string | null
+          status: number | null
+          user_id: string | null
+        }
+        Insert: {
+          cache_hit?: boolean
+          completion_tokens?: number | null
+          created_at?: string
+          error?: string | null
+          feature: string
+          id?: string
+          key_id?: string | null
+          latency_ms?: number | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_id?: string | null
+          status?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          cache_hit?: boolean
+          completion_tokens?: number | null
+          created_at?: string
+          error?: string | null
+          feature?: string
+          id?: string
+          key_id?: string | null
+          latency_ms?: number | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_id?: string | null
+          status?: number | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      llm_call_log_default: {
+        Row: {
+          cache_hit: boolean
+          completion_tokens: number | null
+          created_at: string
+          error: string | null
+          feature: string
+          id: string
+          key_id: string | null
+          latency_ms: number | null
+          model: string | null
+          prompt_tokens: number | null
+          provider_id: string | null
+          status: number | null
+          user_id: string | null
+        }
+        Insert: {
+          cache_hit?: boolean
+          completion_tokens?: number | null
+          created_at?: string
+          error?: string | null
+          feature: string
+          id?: string
+          key_id?: string | null
+          latency_ms?: number | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_id?: string | null
+          status?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          cache_hit?: boolean
+          completion_tokens?: number | null
+          created_at?: string
+          error?: string | null
+          feature?: string
+          id?: string
+          key_id?: string | null
+          latency_ms?: number | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_id?: string | null
+          status?: number | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      llm_providers: {
+        Row: {
+          base_url: string | null
+          config: Json
+          created_at: string
+          default_model: string | null
+          display_name: string
+          enabled: boolean
+          id: string
+          is_active: boolean
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          base_url?: string | null
+          config?: Json
+          created_at?: string
+          default_model?: string | null
+          display_name: string
+          enabled?: boolean
+          id?: string
+          is_active?: boolean
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          base_url?: string | null
+          config?: Json
+          created_at?: string
+          default_model?: string | null
+          display_name?: string
+          enabled?: boolean
+          id?: string
+          is_active?: boolean
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      llm_rr_cursor: {
+        Row: {
+          last_key_id: string | null
+          provider_id: string
+          updated_at: string
+        }
+        Insert: {
+          last_key_id?: string | null
+          provider_id: string
+          updated_at?: string
+        }
+        Update: {
+          last_key_id?: string | null
+          provider_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "llm_rr_cursor_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: true
+            referencedRelation: "llm_providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -132,6 +565,43 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: never; Returns: boolean }
+      llm_cooldown_key: {
+        Args: { _key_id: string; _minutes: number }
+        Returns: undefined
+      }
+      llm_pick_next_key: {
+        Args: never
+        Returns: {
+          base_url: string
+          ciphertext: string
+          config: Json
+          default_model: string
+          iv: string
+          key_id: string
+          provider_id: string
+          provider_slug: string
+        }[]
+      }
+      llm_record_call: {
+        Args: {
+          _cache_hit: boolean
+          _completion_tokens: number
+          _error: string
+          _feature: string
+          _key_id: string
+          _latency_ms: number
+          _model: string
+          _prompt_tokens: number
+          _provider_id: string
+          _status: number
+          _user_id: string
+        }
+        Returns: undefined
+      }
+      llm_set_active_provider: {
+        Args: { _provider_id: string }
+        Returns: undefined
+      }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
     }
