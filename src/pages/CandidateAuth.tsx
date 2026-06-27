@@ -1,14 +1,16 @@
 import { useState, useEffect } from "react";
-import { Navigate, useSearchParams } from "react-router-dom";
+import { Navigate, useSearchParams, Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import { useCandidateAuth } from "@/hooks/useCandidateAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Loader2, Briefcase } from "lucide-react";
+import { Loader2, ArrowLeft, Brain, Code2, Trophy, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { callAutoLoginCandidate } from "@/utils/autoLoginCandidate";
 import { useToast } from "@/hooks/use-toast";
+
+const VAPOR = { v1: "#c4b5fd", v2: "#818cf8", v3: "#67e8f9", v4: "#a5f3fc" };
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
