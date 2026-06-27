@@ -1,42 +1,52 @@
-# Port Mentor Suite from lovable-hiring-hub-02
+# Wire Mentor Suite to llm-caller — port prompts from lovable-hiring-hub-02
 
-Clone the full mentor functionality (chat with memory, on-the-fly Learning Paths, interview bot) into this project. **All AI calls route through the central `llm-caller` edge function** — no direct provider calls anywhere.
+The reference project (`@lovable-hiring-hub-02`) already has the three edge functions with battle-tested prompts and logic:
+- `supabase/functions/mentor-copilot-chat/`
+- `supabase/functions/mentor-learning-path/`
+- `supabase/functions/mock-interview/`
 
-## What you get
+I will port them as the source of truth. Prompts, mode-detection rules, LP-tag grammar, memory extraction, YouTube curation logic, interview scoring rubric — all copied verbatim from there. Only the AI provider call sites are rewritten to go through our central `llm-caller`.
 
-- **AlphaMentor chat**: warm, streaming, with long-term memory, mode detection (mock interview / warmup / debrief / resume / emotional / coding / general), weakness radar, streak tracking, profile-completion nudges, learning-path tag injection.
-- **Learning Paths on the fly**: when the chat emits `[ACTION:learning_path:...]`, the UI calls `mentor-learning-path` which either reuses an existing curated path or generates a new YouTube-curated path with modules + lessons.
-- **Mock Interview overlay**: voice/camera bot driven by `mentor-copilot-chat` (ephemeral mode) and `mock-interview` for evaluation.
+## Step 1 — Read source functions
 
-## DB migration (already approved & applied)
+For each of the three folders above I'll:
+1. `cross_project--read_project_file` on `index.ts` (and any helpers in the function's folder, plus referenced files in `supabase/functions/_shared/` and `supabase/functions/shared/`).
+2. Copy all prompts (system prompts, judge prompts, evaluator prompts), helpers (mode detection, memory builders, LP slug/normalize, YouTube fetch), and DB query shapes verbatim.
 
-Added candidate profile fields (first_name, last_name, stream, branch, institution, graduation_year, cgpa, skills_v4, profile_completeness) and these tables: `candidate_mentor_sessions`, `candidate_mentor_messages`, `candidate_mentor_memory`, `learning_paths_catalog`, `candidate_lp_enrollments`, `candidate_lp_video_progress`, `candidate_xp_events`. All with RLS scoped to `auth.uid()` candidate and admin override.
+## Step 2 — Rewrite AI calls only
 
-## Edge functions to create
+In the source those functions call OpenAI/Groq/etc. directly. In our port every model call becomes:
 
-### 1. `supabase/functions/mentor-copilot-chat/index.ts`
-Streaming chat. Resolves candidate via JWT → loads session/memory → builds the AlphaMentor system prompt (mode-aware, with student context + cross-session memory + opening rules + LP tag rules) → forwards `[system, ...history]` to `llm-caller` in `stream` mode (passing the user's Authorization header) → pipes SSE through to the browser → captures the accumulated text and persists the assistant message. Adds deterministic LP tag fallback when the model forgets. Supports actions: `history`, `older`, `memory`, default chat, and `ephemeral: true` for the interview overlay.
+- non-stream chat / JSON → `fetch(${SUPABASE_URL}/functions/v1/llm-caller, { body: { feature, mode:"chat"|"json", messages, ... } })` forwarding the user's `Authorization` header.
+- streaming chat → same endpoint with `mode:"stream"`, then pipe the SSE bytes straight to the browser.
 
-### 2. `supabase/functions/mentor-learning-path/index.ts`
-Actions: `find_or_create` (slug match → LLM-judge match → YouTube curation + LLM module assembly), `list_my_paths`, `get_path`, `mark_progress` (awards XP via `candidate_xp_events` + bumps `xp_total`), `rate`. LLM judge and curation both call `llm-caller` in `json` mode (re-engineered from tool-calling to JSON output so they slot into our unified caller). YouTube fetch reads `YOUTUBE_API_KEY` from secrets; if missing returns a clear error.
+A tiny `_shared/llmCaller.ts` helper wraps these three call shapes. No prompt text lives in the helper — prompts stay in the function files exactly as copied from the source.
 
-### 3. `supabase/functions/mock-interview/index.ts`
-Modes: `next-question` (per-turn JSON), `evaluate` (final scored feedback). Both call `llm-caller` in `json` mode. Used by mock-interview overlay variants and the PracticeHub for non-AlphaMentor interview flows.
+## Step 3 — Reconcile schema differences
 
-## Wiring (frontend)
+Source project is multi-tenant (`tenant_id`, separate `candidate_mentor_*` schema variants). Our port is single-tenant B2C with tables already provisioned (`candidate_mentor_sessions/messages/memory`, `learning_paths_catalog`, `candidate_lp_enrollments`, `candidate_lp_video_progress`, `candidate_xp_events`, `candidates`). I'll:
+- Strip `tenant_id` filters.
+- Map any column name drift (e.g. `candidate_id` → our schema) inline during the port — no migrations needed, the tables already match the original shapes used by the UI.
+- Keep RLS-safe service-role admin client for writes, user-client for auth resolution.
 
-`MentorCopilot.tsx`, `MockInterviewOverlay.tsx`, `LearningPathView.tsx`, `MyLearningPaths.tsx` already call these endpoints. No frontend changes needed once functions are deployed — the existing `fetch` / `supabase.functions.invoke` calls just start working.
+## Step 4 — Action contracts already match the UI
 
-## Secrets
+The UI calls (`history`, `older`, `memory`, default streaming chat with `ephemeral` for mock-interview; `find_or_create`, `list_my_paths`, `get_path`, `mark_progress`, `rate`; `next-question`, `evaluate`) line up with the source functions' contracts. No frontend changes.
 
-- `LLM_KEYS_ENC_SECRET`, `LOVABLE_API_KEY`, `SUPABASE_*` — already configured.
-- `YOUTUBE_API_KEY` — required for fresh LP generation. Will prompt you to add this when implementing.
+## Step 5 — Secrets
 
-## Technical notes (for review)
+- Required and already configured: `LLM_KEYS_ENC_SECRET`, `LOVABLE_API_KEY`, `SUPABASE_*`.
+- `YOUTUBE_API_KEY` — source uses it for LP curation. I'll request it via `add_secret` only when we hit the curation path; until then `find_or_create` returns `youtube_key_missing` with a clear message.
+- Any other source-only env vars (OpenAI/Groq keys, Azure config) are dropped — we don't need them because all AI traffic goes through `llm-caller`.
 
-- mentor-copilot-chat forwards the user JWT to llm-caller so llm-caller can identify the calling user and log usage against them.
-- The llm-caller currently runs OpenAI-compatible streaming (works for OpenAI/Groq/Lovable/Azure); Gemini streaming SSE differs and would need a small adapter tweak if you switch to Gemini as the active provider.
-- LP catalog is shared across all candidates — first user to ask for "SQL" pays for curation, everyone else reuses it (massive cost savings at B2C scale).
-- LP video progress upserts on `(candidate_id, path_id, video_id)` for idempotent autosaves.
+## Step 6 — Verify
 
-After approving the plan I'll build the three edge functions, redeploy, and verify the mentor chat end-to-end.
+After deploy:
+1. Open MentorCopilot → confirm SSE stream + `llm_call_log` row with `feature='mentor_chat'`.
+2. `MyLearningPaths` empty-state load → 200.
+3. Trigger `mock-interview evaluate` with a stub transcript → JSON shape matches the overlay's parser.
+4. Tail edge logs for each function.
+
+## Out of scope for this pass
+
+- Coding copilot, multi-chat, assessment generators, and other AI features from the source project. Only Mentor / LP / Mock-Interview, per your direction.
