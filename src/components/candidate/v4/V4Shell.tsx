@@ -80,7 +80,7 @@ export function V4Shell({ bootstrap, onRefresh }: Props) {
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-16 sm:h-20 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             {isSudomentor ? (
-              <Logo className="h-8 sm:h-[3.1rem]" to={null} />
+              <Logo className="w-[14.1rem] h-auto" to={null} />
             ) : (
               <>
                 <img src={alphaLogo} alt="AlphaRecrewt" className="h-10 sm:h-16 w-auto object-contain shrink-0" />
