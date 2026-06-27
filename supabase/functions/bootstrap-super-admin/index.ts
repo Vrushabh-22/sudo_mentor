@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
       if (existing) userId = existing.id;
     }
 
-    // 2. Create user if missing (email pre-confirmed).
+    // 2. Create user if missing (email pre-confirmed). Tolerate races/duplicates.
     if (!userId) {
       const { data, error } = await admin.auth.admin.createUser({
         email: SUPER_ADMIN_EMAIL,
@@ -38,8 +38,16 @@ Deno.serve(async (req) => {
         email_confirm: true,
         user_metadata: { full_name: "Akshay Deshmukh" },
       });
-      if (error) throw error;
-      userId = data.user!.id;
+      if (error) {
+        // Likely a concurrent invocation already created the user. Re-lookup.
+        const { data: relist, error: relistErr } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
+        if (relistErr) throw error;
+        const existing = relist.users.find((u) => (u.email || "").toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase());
+        if (!existing) throw error;
+        userId = existing.id;
+      } else {
+        userId = data.user!.id;
+      }
     }
 
     // 3. Ensure admin role assignment.
