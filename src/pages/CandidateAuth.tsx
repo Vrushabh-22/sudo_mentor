@@ -1,14 +1,16 @@
 import { useState, useEffect } from "react";
-import { Navigate, useSearchParams } from "react-router-dom";
+import { Navigate, useSearchParams, Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import { useCandidateAuth } from "@/hooks/useCandidateAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Loader2, Briefcase } from "lucide-react";
+import { Loader2, ArrowLeft, Brain, Code2, Trophy, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { callAutoLoginCandidate } from "@/utils/autoLoginCandidate";
 import { useToast } from "@/hooks/use-toast";
+
+const VAPOR = { v1: "#c4b5fd", v2: "#818cf8", v3: "#67e8f9", v4: "#a5f3fc" };
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
@@ -158,68 +160,175 @@ export default function CandidateAuth() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-4 p-3 bg-primary/10 rounded-full w-fit">
-            <Briefcase className="h-6 w-6 text-primary" />
+    <div className="min-h-screen bg-white font-sans text-slate-900 lg:grid lg:grid-cols-[1.1fr,0.9fr]">
+      {/* BRAND PANEL */}
+      <aside
+        className="relative overflow-hidden px-6 py-10 text-white lg:px-14 lg:py-12"
+        style={{ background: `linear-gradient(135deg, ${VAPOR.v2} 0%, ${VAPOR.v3} 100%)` }}
+      >
+        {/* blobs */}
+        <motion.div
+          aria-hidden
+          animate={{ x: [0, 40, 0], y: [0, -30, 0] }}
+          transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
+          className="pointer-events-none absolute -left-32 -top-20 h-[420px] w-[420px] rounded-full opacity-50 blur-3xl"
+          style={{ background: VAPOR.v1 }}
+        />
+        <motion.div
+          aria-hidden
+          animate={{ x: [0, -40, 0], y: [0, 40, 0] }}
+          transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
+          className="pointer-events-none absolute -bottom-32 -right-20 h-[480px] w-[480px] rounded-full opacity-40 blur-3xl"
+          style={{ background: VAPOR.v4 }}
+        />
+        {/* dot pattern overlay */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-15 mix-blend-overlay"
+          style={{
+            backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)",
+            backgroundSize: "28px 28px",
+          }}
+        />
+
+        <div className="relative flex h-full flex-col">
+          <Link to="/" className="inline-flex items-center gap-2 text-sm font-semibold text-white/90 hover:text-white">
+            <div className="relative h-7 w-7">
+              <div className="absolute inset-0 rounded-lg bg-white/90" />
+              <div className="absolute inset-0 grid place-items-center font-display text-[11px] font-bold text-slate-900">S</div>
+            </div>
+            <span className="font-display tracking-tight">sudo·mentor</span>
+          </Link>
+
+          <div className="mt-10 hidden lg:mt-16 lg:block">
+            <motion.h1
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              className="font-display text-4xl font-extrabold leading-tight tracking-tight xl:text-5xl"
+            >
+              Welcome to your<br />career copilot.
+            </motion.h1>
+            <p className="mt-4 max-w-md text-white/85">
+              Mentor. Projects. Practice. Jobs — all in one place. Built for college.
+            </p>
+
+            <ul className="mt-10 space-y-4 max-w-md">
+              {[
+                { icon: Brain, label: "AI mentor that remembers you" },
+                { icon: Code2, label: "Internship-grade projects, AI-evaluated" },
+                { icon: Trophy, label: "Climb your campus leaderboard" },
+              ].map((f, i) => (
+                <motion.li
+                  key={f.label}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.5, delay: 0.15 + i * 0.08 }}
+                  className="flex items-center gap-3 text-sm font-medium"
+                >
+                  <div className="grid h-9 w-9 place-items-center rounded-xl bg-white/20 backdrop-blur ring-1 ring-white/30">
+                    <f.icon className="h-4 w-4" />
+                  </div>
+                  {f.label}
+                </motion.li>
+              ))}
+            </ul>
+
+            <div className="mt-12 rounded-2xl border border-white/25 bg-white/10 p-5 backdrop-blur max-w-md">
+              <div className="flex items-center gap-1 text-amber-200">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Sparkles key={i} className="h-3.5 w-3.5" />
+                ))}
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-white/95">
+                "Got my first internship in 6 weeks. The mentor felt like a senior who actually cared."
+              </p>
+              <p className="mt-2 text-xs font-semibold text-white/75">— Aman, IIT Delhi</p>
+            </div>
           </div>
-          <CardTitle className="text-2xl">Candidate Portal</CardTitle>
-          <CardDescription>Access your job applications and track your progress</CardDescription>
-        </CardHeader>
-        <CardContent>
+
+          {/* mobile compact tagline */}
+          <div className="mt-4 lg:hidden">
+            <h1 className="font-display text-2xl font-bold">Welcome back.</h1>
+            <p className="text-sm text-white/85">Sign in to your career copilot.</p>
+          </div>
+        </div>
+      </aside>
+
+      {/* FORM PANEL */}
+      <main className="flex items-center justify-center px-6 py-10 sm:px-10 lg:px-14">
+        <div className="w-full max-w-sm">
+          <Link
+            to="/"
+            className="mb-8 hidden items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-900 lg:inline-flex"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to home
+          </Link>
+
+          <h2 className="font-display text-3xl font-bold tracking-tight text-slate-900">Welcome back</h2>
+          <p className="mt-2 text-sm text-slate-500">Sign in to continue your journey.</p>
+
           {autoLoginError && (
-            <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
+            <div className="mt-5 rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
               {autoLoginError}
             </div>
           )}
 
-          <div className="space-y-3 mb-6">
-            <Button variant="outline" className="w-full" onClick={() => handleSocialLogin("google")} disabled={!!socialLoading}>
+          <div className="mt-7 space-y-2.5">
+            <Button variant="outline" className="w-full justify-center" onClick={() => handleSocialLogin("google")} disabled={!!socialLoading}>
               {socialLoading === "google" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <GoogleIcon />}
               <span className="ml-2">Continue with Google</span>
             </Button>
-            <Button variant="outline" className="w-full" onClick={() => handleSocialLogin("github")} disabled={!!socialLoading}>
+            <Button variant="outline" className="w-full justify-center" onClick={() => handleSocialLogin("github")} disabled={!!socialLoading}>
               {socialLoading === "github" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <GitHubIcon />}
               <span className="ml-2">Continue with GitHub</span>
             </Button>
-            <Button variant="outline" className="w-full" onClick={() => handleSocialLogin("azure")} disabled={!!socialLoading}>
+            <Button variant="outline" className="w-full justify-center" onClick={() => handleSocialLogin("azure")} disabled={!!socialLoading}>
               {socialLoading === "azure" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LinkedInIcon />}
               <span className="ml-2">Continue with LinkedIn</span>
             </Button>
           </div>
 
-          <div className="relative mb-6">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-border" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">or sign in with email</span>
+          <p className="mt-3 text-center text-xs text-slate-400">
+            New here? Pick any social login — we'll set up your account.
+          </p>
+
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-200" /></div>
+            <div className="relative flex justify-center text-[11px] font-semibold uppercase tracking-wider">
+              <span className="bg-white px-3 text-slate-400">or with email</span>
             </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="Enter your email" required />
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-xs font-semibold text-slate-600">Email</Label>
+              <Input id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="you@college.edu" required />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" name="password" type="password" value={formData.password} onChange={handleInputChange} placeholder="Enter your password" required />
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-xs font-semibold text-slate-600">Password</Label>
+              <Input id="password" name="password" type="password" value={formData.password} onChange={handleInputChange} placeholder="••••••••" required />
             </div>
-            <Button type="submit" className="w-full" disabled={isSubmitting || !formData.email || !formData.password}>
+            <Button
+              type="submit"
+              className="w-full bg-slate-900 text-white hover:bg-slate-800"
+              disabled={isSubmitting || !formData.email || !formData.password}
+            >
               {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Signing in...
-                </>
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Signing in...</>
               ) : (
-                "Sign In"
+                "Sign in"
               )}
             </Button>
           </form>
-        </CardContent>
-      </Card>
+
+          <p className="mt-8 text-center text-xs text-slate-400">
+            By continuing, you agree to our{" "}
+            <a href="#" className="font-medium text-slate-600 hover:text-slate-900">Terms</a> and{" "}
+            <a href="#" className="font-medium text-slate-600 hover:text-slate-900">Privacy Policy</a>.
+          </p>
+        </div>
+      </main>
     </div>
   );
 }
