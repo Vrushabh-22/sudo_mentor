@@ -1,0 +1,2 @@
+alter table public.practice_items drop constraint practice_items_source_check;
+alter table public.practice_items add constraint practice_items_source_check check (source = any (array['admin','llm','excel']));
