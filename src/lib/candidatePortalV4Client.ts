@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { computeProfileCompleteness } from "@/lib/profileCompleteness";
 
 /**
  * Compatibility shim for legacy components that used to call the
@@ -34,10 +35,17 @@ export async function invokeV4<T = any>(body: Record<string, any>): Promise<{ da
           about: c.bio,
           location: c.location,
           resume_url: c.resume_url,
-          skills_v4: (c.skills || []).map((s: string) => ({ name: s })),
+          skills_v4: Array.isArray((c as any).skills_v4) && (c as any).skills_v4.length
+            ? (c as any).skills_v4
+            : (c.skills || []).map((s: string) => ({ name: s })),
+          stream: (c as any).stream,
+          branch: (c as any).branch,
+          institution: (c as any).institution,
+          graduation_year: (c as any).graduation_year,
+          cgpa: (c as any).cgpa,
           xp_total: c.xp_total || 0,
           streak_days: c.streak_days || 0,
-          profile_completeness: 0,
+          profile_completeness: (c as any).profile_completeness ?? 0,
           ...((c.profile_extra as any) || {}),
         },
         credits: { balance: 0, lifetime_earned: 0 },
