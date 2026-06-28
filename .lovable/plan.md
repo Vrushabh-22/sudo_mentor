@@ -1,128 +1,77 @@
 ## Goal
 
-Replace the current "Daily Quiz / Learning Paths" Practice section with **Daily Career Fitness** — a Duolingo-style 15-min daily workout across 12 admin-managed pillars, with stream-aware adaptive sequencing and a live Career Fitness Score. All pillar content is admin-curated through a new **Practice Content** menu in `/admin`.
+Remove the LLM Prompt Studio from the Practice Content admin entirely. Replace it with a simple, template-driven **Question Bank** flow per subtopic (like the `Questions` module in `lovable-hiring-hub-02`): admin picks **question type + counts** on a subtopic, downloads an Excel template for that type, fills it offline, uploads it, and the rows land in `practice_items` as approved items ready for the daily workout.
 
-## Phase 1 — 12 Pillars
+No prompts. No LLM generation in admin. Daily workout keeps reading from `practice_items`.
 
-Aptitude · Logical Reasoning · English & Vocab · Communication · Confidence & Speech · HR Interview · Technical (stream-aware) · Resume & ATS · Soft Skills & Workplace · AI Literacy & Prompting · Current Affairs · Daily Mock Interview.
+## Subtopic config (replaces "Kind + Time budget")
 
-Each pillar has subtopics (e.g. Aptitude → Speed Maths, Percentages…). Schema lets us add the remaining 8 pillars later without migration.
+For each subtopic, admin sets:
+- **Question types enabled** (multi-select, drives which templates can be uploaded):
+  - `mcq` — single/multiple choice (Choice1–6, RightChoices)
+  - `true_false`
+  - `fill_blanks` (Answer1–5)
+  - `subjective` (ScoringCriteria)
+  - `speech` (ReferenceText, TimeLimit)
+  - `scenario` (situational MCQ; same shape as mcq with longer stem)
+  - `ordering` (Item1–10, ScoringMode)
+- **Target counts per type** (e.g. mcq: 50, speech: 10) — informational + progress bar against current approved item count.
+- **Default difficulty** (easy/medium/hard) and **time budget (s)** — kept.
+- **Stream-aware** flag — kept (already on pillar).
 
-## Database (new tables)
+The existing `practice_items` table already supports `kind`, `payload`, `difficulty`, `status`, `stream_tag`, so no schema change needed for storage. We'll only:
+- Add `practice_subtopics.enabled_kinds text[]` and `target_counts jsonb` (e.g. `{"mcq":50,"speech":10}`).
+- Keep `default_kind` for backward compat; ignore in new UI.
 
-```
-practice_pillars          id, slug, name, icon, color, sort_order, enabled, is_stream_aware
-practice_subtopics        id, pillar_id, slug, name, sort_order, difficulty_default
-practice_prompts          id, subtopic_id, kind('mcq'|'speech'|'scenario'|'writing'|'mock'),
-                          system_prompt, user_prompt_template, few_shot jsonb,
-                          model_override, temperature, schema_json, version, is_active
-practice_items            id, subtopic_id, prompt_id, payload jsonb (question/options/answer/rubric),
-                          difficulty, stream_tag, source('admin'|'llm'),
-                          status('draft'|'approved'|'archived'), quality_score, created_by
-practice_daily_workout    id, candidate_id, date, slots jsonb (pillar_id + subtopic_id + item_ids + time_budget),
-                          status, total_xp
-practice_attempts         id, candidate_id, workout_id, pillar_id, subtopic_id, item_id,
-                          answer jsonb, score, is_correct, latency_ms, ai_feedback jsonb, created_at
-career_fitness_scores     candidate_id, pillar_id, score(0-100), last_updated  (PK candidate_id+pillar_id)
-career_fitness_daily      candidate_id, date, overall, per_pillar jsonb, streak_day  (for trend chart)
-```
+## New admin UI (right pane, replaces Prompt Studio)
 
-All tables get `GRANT` blocks + RLS (candidate owns their rows; admin via `is_admin()`). `practice_*` content tables are admin-write / authenticated-read.
+Three sections per selected subtopic:
 
-`career_fitness_daily` partitioned by month (same pattern as `llm_call_log`) for B2C scale.
+1. **Question types** card
+   - Checkbox grid of supported kinds with a numeric input for target count.
+   - Save button persists `enabled_kinds` + `target_counts`.
 
-## Admin — new "Practice Content" sidebar entry (`/admin`)
+2. **Upload questions** card (the core "smart-assessment" parity piece)
+   - Dropdown: question type (only enabled kinds).
+   - **Download template** button → generates an `.xlsx` with the exact headers + 1 example row for that type, using the same column conventions as `ExcelQBUploadDialog` (MCQ: QuestionText, Choice1..Choice6, RightChoices, IsMultipleRightChoice, Difficulty; Speech: QuestionText, ReferenceText, TimeLimit, Difficulty; etc.). Generated client-side with `xlsx`.
+   - **Upload .xlsx** → parsed client-side with `xlsx`, auto-detects format from headers (same logic as ref), validates each row, shows a preview table with valid/invalid badges and per-row errors. Admin can deselect bad rows, then **Import** sends valid rows in batches to the edge function.
 
-Added to `AdminSettings` MENU alongside LLM / Azure. Three-pane Prompt Studio:
+3. **Item bank** card (same as today but read-only-ish)
+   - Filters: type, status (approved/draft), difficulty.
+   - Inline edit / delete / toggle status. No "approve" needed for Excel-imported rows — they import as `approved` by default (admin can toggle to draft).
+   - Counts per type vs target, with a progress bar.
 
-1. **Pillars list** (left) — drag-reorder, enable/disable, edit name/icon/color.
-2. **Subtopics** (middle) — per selected pillar; difficulty default, stream-aware toggle.
-3. **Prompt editor** (right) — per subtopic:
-   - System prompt + user template (with `{candidate_stream}`, `{difficulty}`, `{recent_topics}` vars)
-   - Few-shot JSON examples
-   - Output schema (so `llm-caller` can validate)
-   - "Generate sample" button → calls `llm-caller` → preview rendered item
-   - "Promote to bank" → inserts into `practice_items` as `source='llm'`, `status='draft'` for review
-   - **Items bank** tab: list, approve/archive, manual create
+The left two columns (Pillars list, Subtopics list) stay as they are.
 
-Single edge function `practice-admin` handles all CRUD + sample generation through existing `llm-caller`.
+## Backend changes
 
-## Candidate Practice tab — "Today's Career Workout"
+- New migration adds `enabled_kinds text[] not null default '{}'` and `target_counts jsonb not null default '{}'` to `practice_subtopics`. No table creation.
+- Extend `practice-admin` edge function with one new action:
+  - `bulk_insert_items` — accepts `{ subtopic_id, kind, items: [{payload, difficulty, stream_tag}], status: 'approved'|'draft' }`. Inserts in chunks of 200 via service-role client. Returns inserted/failed counts.
+- Remove `generate_sample` action and the `practice_prompts` references from the admin UI (the table can stay in DB for now; we just stop using it from the admin tab). No edge function changes for `practice-workout`.
 
-Replaces current `PracticeHub` grid:
+## Files to add / edit
 
-```
-┌─ 🔥 Today's Career Workout ───────────────────┐
-│ ✅ Aptitude · Percentages (3 min)             │
-│ ⏳ English · Sentence Correction (2 min)      │
-│ ⏳ HR · Tell me about a failure (4 min)       │
-│ ⏳ AI · Prompt for summarisation (2 min)      │
-│ ⏳ Technical · {stream-specific} (4 min)      │
-│ ── 15 min · +60 XP · streak 🔥 7              │
-└───────────────────────────────────────────────┘
-```
+**Edit**
+- `supabase/migrations/<new>.sql` — add columns above with grants already covered (table already has them).
+- `supabase/functions/practice-admin/index.ts` — add `bulk_insert_items`; keep CRUD for items.
+- `src/lib/practiceClient.ts` — no change (uses generic invoke).
+- `src/components/admin/PracticeContentSettings.tsx` — replace right pane: remove Prompt Studio, add the three sections above.
 
-- One-tap "Start workout" → runs slots sequentially; each slot uses the right renderer (MCQ / speech-record / scenario / writing / mock).
-- Speech slots reuse `useTTSProvider` + mic capture; AI scoring via `llm-caller` with rubric in prompt.
-- Per-slot XP, per-pillar score delta animated.
-- End screen → updated **Career Fitness Score** dial + per-pillar bars + share card (reuses `ShareSheet`).
+**Add**
+- `src/components/admin/practice/QuestionTemplates.ts` — per-kind header definitions + example row + Excel generator (xlsx).
+- `src/components/admin/practice/QuestionExcelParser.ts` — detect format from headers, parse + validate rows per kind (ported/trimmed from `ExcelQBUploadDialog`).
+- `src/components/admin/practice/QuestionUploadCard.tsx` — download template / file drop / preview table / import.
+- `src/components/admin/practice/QuestionTypesCard.tsx` — enabled kinds + target counts editor.
+- `src/components/admin/practice/ItemBankCard.tsx` — item list with filters + inline actions.
 
-Secondary tabs inside Practice: `Workout` (default) · `Pillars` (drill into any pillar for extra practice) · `Learning Paths` (kept as-is).
+**Dependency**
+- Add `xlsx` to `package.json` (used both for template generation and parsing).
 
-## Stream-aware adaptive selection
+## Technical notes
 
-Server-side `pick_daily_workout(candidate_id)` edge function:
-1. Read `career_fitness_scores` → pick 2 weakest pillars + 3 rotating staples (always include Communication or HR daily).
-2. For each pillar pick a subtopic the candidate hasn't seen in last N days.
-3. For `is_stream_aware` pillars (Technical), filter items by `candidates.stream` / `branch`.
-4. Select `approved` items first; if bank thin, call `llm-caller` with the subtopic's prompt to generate fresh (cached 24h via `llm_cache`).
-5. Persist as `practice_daily_workout` row → returned to client.
-
-## Career Fitness Score
-
-After each attempt:
-- Pillar score = EMA(previous, latest_normalised, alpha=0.2).
-- Overall = weighted avg (Communication & Technical weight 1.2; others 1.0) + consistency bonus (streak_days capped at 30).
-- Snapshot daily into `career_fitness_daily` for trend chart on Home.
-
-`V4Home.tsx` gets a new "Career Fitness" card showing overall % + 7-day sparkline.
-
-## Edge functions (new)
-
-- `practice-admin` — pillar/subtopic/prompt/item CRUD + LLM sample generation (admin-only).
-- `practice-workout` — actions: `get_today`, `start_slot`, `submit_attempt`, `finish_workout`. All AI calls go through existing `llm-caller` (no duplicate LLM code).
-- Existing `mock-interview` reused for the Mock Interview pillar slot.
-
-## Files touched / added
-
-```
-supabase/migrations/<new>.sql                       (schema above)
-supabase/functions/practice-admin/index.ts
-supabase/functions/practice-workout/index.ts
-src/components/admin/PracticeContentSettings.tsx    (added to AdminSettings MENU)
-src/components/admin/practice/PillarsPane.tsx
-src/components/admin/practice/SubtopicsPane.tsx
-src/components/admin/practice/PromptStudio.tsx
-src/components/admin/practice/ItemsBank.tsx
-src/components/candidate/v4/practice/DailyWorkout.tsx
-src/components/candidate/v4/practice/SlotRunner.tsx     (MCQ/Speech/Scenario/Writing/Mock renderers)
-src/components/candidate/v4/practice/FitnessScoreCard.tsx
-src/components/candidate/v4/PracticeHub.tsx             (refactored: Workout | Pillars | Paths tabs)
-src/components/candidate/v4/V4Home.tsx                  (Fitness card)
-src/lib/practiceClient.ts                               (invoke wrappers)
-```
-
-Old `start_practice` / `submit_practice` actions on `candidatePortalV4Client` stay temporarily so legacy quiz still works, then removed once Workout flow is live.
-
-## Out of scope (phase 1.5+)
-
-- Weekly unlocks (Coding Contest, Hackathon)
-- Monthly company challenges (Crack TCS / Infosys)
-- Pillars 13–20 (Emotional Intelligence, Digital Skills, etc.) — schema already supports them.
-
-## Verification
-
-1. Admin → Practice Content → create pillar "Aptitude" → subtopic "Percentages" → write prompt → Generate sample → Approve item.
-2. Candidate /portal → Practice tab → "Today's Career Workout" lists 5 slots, Technical slot matches candidate stream.
-3. Complete workout → Fitness Score updates, snapshot row appears in `career_fitness_daily`, Home shows updated %.
-4. Re-open next day → fresh subtopics, weakest pillar prioritised.
+- Templates and parsing live entirely client-side; no AI call path is touched.
+- `practice_items.payload` schema per kind stays compatible with `practice-workout` runner (mcq: `{question, options, correct_index, explanation}`; speech: `{prompt, reference_text, time_limit}`; etc.). The parser normalizes Excel rows into these shapes before sending to `bulk_insert_items`.
+- `RightChoices` in MCQ accepts either the option text or a 1-based index list (`"1,3"`) — same as ref project — and is converted to `correct_index` (single) or `correct_indices` (multiple) in the payload.
+- All inserts route through the service-role admin function (no direct table writes from the browser), preserving the existing RLS posture.
+- The old `practice_prompts` table and `generate_sample` code are not deleted in this pass — they're just unreferenced — so we can drop them in a later cleanup once we confirm nothing depends on them.
