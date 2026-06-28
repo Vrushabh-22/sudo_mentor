@@ -89,6 +89,8 @@ export function V4Home({ bootstrap, onNavigate }: Props) {
         )}
       </Card>
 
+      <FitnessScoreCard onOpenPractice={() => onNavigate('practice')} />
+
       {/* Quick actions */}
       <div className="grid grid-cols-2 gap-3">
         <button onClick={() => onNavigate('practice')} className="text-left p-4 rounded-2xl bg-white ring-1 ring-slate-200 hover:ring-violet-200 hover:shadow-md transition-all">
