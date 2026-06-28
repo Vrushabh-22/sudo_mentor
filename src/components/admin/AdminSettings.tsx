@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Loader2, Save, Plus, Trash2, RefreshCw, KeyRound, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { AzureStorageSettings } from "./AzureStorageSettings";
 
 type Provider = {
   id: string;
