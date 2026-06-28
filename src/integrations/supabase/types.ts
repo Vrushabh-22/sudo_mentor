@@ -35,6 +35,86 @@ export type Database = {
         }
         Relationships: []
       }
+      azure_storage_accounts: {
+        Row: {
+          account_name: string
+          connection_last4: string
+          connection_string_ciphertext: string
+          connection_string_iv: string
+          created_at: string
+          enabled: boolean
+          id: string
+          is_active: boolean
+          label: string
+          updated_at: string
+        }
+        Insert: {
+          account_name: string
+          connection_last4: string
+          connection_string_ciphertext: string
+          connection_string_iv: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          is_active?: boolean
+          label: string
+          updated_at?: string
+        }
+        Update: {
+          account_name?: string
+          connection_last4?: string
+          connection_string_ciphertext?: string
+          connection_string_iv?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          is_active?: boolean
+          label?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      azure_storage_containers: {
+        Row: {
+          account_id: string
+          container_name: string
+          created_at: string
+          enabled: boolean
+          id: string
+          public_read: boolean
+          purpose: string
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          container_name: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          public_read?: boolean
+          purpose: string
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          container_name?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          public_read?: boolean
+          purpose?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "azure_storage_containers_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "azure_storage_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       candidate_lp_enrollments: {
         Row: {
           candidate_id: string

@@ -11,3 +11,6 @@ verify_jwt = true
 
 [functions.mock-interview]
 verify_jwt = true
+
+[functions.admin-azure-storage]
+verify_jwt = true

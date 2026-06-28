@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Loader2, Save, Plus, Trash2, RefreshCw, KeyRound, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { AzureStorageSettings } from "./AzureStorageSettings";
 
 type Provider = {
   id: string;
@@ -295,7 +296,10 @@ export function AdminSettings() {
         </CardContent>
       </Card>
 
+      <AzureStorageSettings />
+
       <div className="grid gap-6 md:grid-cols-2">
+
         <Card>
           <CardHeader>
             <CardTitle>Google OAuth</CardTitle>
