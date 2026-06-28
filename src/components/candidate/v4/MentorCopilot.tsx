@@ -10,6 +10,7 @@ import { MessageRenderer } from './chat/MessageRenderer';
 import { LearningPathView } from './LearningPathView';
 import { MockInterviewOverlay } from './MockInterviewOverlay';
 import { InterviewRecapCard, type InterviewRecap } from './InterviewRecapCard';
+import { missingEssentials } from '@/lib/profileCompleteness';
 
 interface Msg {
   id: string;
@@ -20,7 +21,7 @@ interface Msg {
   recap?: InterviewRecap;
 }
 
-interface Props { candidate: V4Profile; onProfileChanged: () => void }
+interface Props { candidate: V4Profile; onProfileChanged: () => void; onOpenProfile?: () => void }
 
 const NUGGETS: Array<{ label: string; icon: any; prompt: string; mode?: 'interview' }> = [
   { label: 'Start mock interview', icon: Mic, prompt: 'INTERVIEW_START', mode: 'interview' },
@@ -84,10 +85,10 @@ function isInterviewInternal(msg: { role: string; content: string }): boolean {
 }
 
 function buildGreeting(candidate: V4Profile): Msg {
-  const ready = candidate.profile_completeness && candidate.profile_completeness >= 60;
-  const content = ready
+  const missing = missingEssentials(candidate);
+  const content = missing.length === 0
     ? `Hey ${candidate.first_name || 'there'}! I'm your AlphaMentor. Ready to level up your placement game? Ask me about skills to learn, mock interviews, or a personalised learning path.`
-    : `Hi ${candidate.first_name || 'there'}! I'm AlphaMentor 🎓. Quick setup so I can guide you better — fill the form below 👇\n[ACTION:profile_form:fields=stream,branch,graduation_year,cgpa,skills]`;
+    : `Hi ${candidate.first_name || 'there'}! I'm AlphaMentor 🎓. Quick setup so I can guide you better — fill the form below 👇\n[ACTION:profile_form:fields=${missing.join(',')}]`;
 
   return {
     id: 'mentor-greeting',
@@ -96,7 +97,7 @@ function buildGreeting(candidate: V4Profile): Msg {
   };
 }
 
-export function MentorCopilot({ candidate, onProfileChanged }: Props) {
+export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Props) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
@@ -372,10 +373,19 @@ export function MentorCopilot({ candidate, onProfileChanged }: Props) {
         <div className="h-8 w-8 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
           <Sparkles className="h-4 w-4 text-white" />
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <div className="font-semibold text-sm">AlphaMentor</div>
           <div className="text-[10px] text-muted-foreground">Your personal placement coach</div>
         </div>
+        {missingEssentials(candidate).length > 0 && onOpenProfile && (
+          <button
+            onClick={onOpenProfile}
+            className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-white border border-violet-200 text-violet-700 hover:bg-violet-50 transition whitespace-nowrap"
+            title="Open full profile editor"
+          >
+            Complete profile →
+          </button>
+        )}
       </div>
 
       <div

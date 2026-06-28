@@ -179,7 +179,7 @@ export function V4Shell({ bootstrap, onRefresh }: Props) {
               candidateEmail={c.email}
             />
           )}
-          {tab === "mentor" && <MentorCopilot candidate={c} onProfileChanged={onRefresh} />}
+          {tab === "mentor" && <MentorCopilot candidate={c} onProfileChanged={onRefresh} onOpenProfile={() => setTab("profile")} />}
           {tab === "practice" && <PracticeHub bootstrap={bootstrap} onDone={onRefresh} />}
           {tab === "jobs" && <V4JobsTab candidateId={user?.candidateId || ""} candidateEmail={c.email} />}
           {tab === "leaderboard" && <LeaderboardView candidate={c} />}

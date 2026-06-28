@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { computeProfileCompleteness } from "@/lib/profileCompleteness";
 
 /**
  * Compatibility shim for legacy components that used to call the
@@ -34,10 +35,17 @@ export async function invokeV4<T = any>(body: Record<string, any>): Promise<{ da
           about: c.bio,
           location: c.location,
           resume_url: c.resume_url,
-          skills_v4: (c.skills || []).map((s: string) => ({ name: s })),
+          skills_v4: Array.isArray((c as any).skills_v4) && (c as any).skills_v4.length
+            ? (c as any).skills_v4
+            : (c.skills || []).map((s: string) => ({ name: s })),
+          stream: (c as any).stream,
+          branch: (c as any).branch,
+          institution: (c as any).institution,
+          graduation_year: (c as any).graduation_year,
+          cgpa: (c as any).cgpa,
           xp_total: c.xp_total || 0,
           streak_days: c.streak_days || 0,
-          profile_completeness: 0,
+          profile_completeness: (c as any).profile_completeness ?? 0,
           ...((c.profile_extra as any) || {}),
         },
         credits: { balance: 0, lifetime_earned: 0 },
@@ -87,15 +95,20 @@ export async function invokeV4<T = any>(body: Record<string, any>): Promise<{ da
           .filter((s: any) => typeof s === "string" && s.length > 0);
       }
 
-      // Merge profile_extra rather than overwrite
+      // Fetch existing row to (a) merge profile_extra and (b) recompute completeness
+      const { data: existing } = await supabase
+        .from("candidates")
+        .select("*")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+
       if (Object.keys(extra).length > 0) {
-        const { data: existing } = await supabase
-          .from("candidates")
-          .select("profile_extra")
-          .eq("user_id", session.user.id)
-          .maybeSingle();
         update.profile_extra = { ...((existing as any)?.profile_extra || {}), ...extra };
       }
+
+      // Compute completeness from the merged candidate snapshot
+      const merged = { ...((existing as any) || {}), ...update };
+      update.profile_completeness = computeProfileCompleteness(merged);
 
       if (Object.keys(update).length === 0) {
         return { data: { ok: true } as any, error: null };
