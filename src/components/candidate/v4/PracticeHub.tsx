@@ -8,6 +8,7 @@ import { Loader2, ArrowLeft, Trophy, Share2 } from 'lucide-react';
 import { MyLearningPaths } from './MyLearningPaths';
 import { LearningPathView } from './LearningPathView';
 import { ShareSheet } from './share/ShareSheet';
+import { DailyWorkout } from './practice/DailyWorkout';
 
 interface Props { bootstrap: V4Bootstrap; onDone: () => void }
 
