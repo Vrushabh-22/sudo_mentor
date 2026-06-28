@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, LogOut, ShieldCheck } from "lucide-react";
 import { AdminCandidatesList } from "@/components/admin/AdminCandidatesList";
 import { AdminSettings } from "@/components/admin/AdminSettings";
+import { PracticeContentSettings } from "@/components/admin/PracticeContentSettings";
 
 export default function AdminShell() {
   const { loading, isAdmin, email } = useIsAdmin();
@@ -48,10 +49,14 @@ export default function AdminShell() {
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
             <TabsTrigger value="candidates">Candidates</TabsTrigger>
+            <TabsTrigger value="practice">Practice Content</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
           <TabsContent value="candidates" className="mt-6">
             <AdminCandidatesList />
+          </TabsContent>
+          <TabsContent value="practice" className="mt-6">
+            <PracticeContentSettings />
           </TabsContent>
           <TabsContent value="settings" className="mt-6">
             <AdminSettings />
