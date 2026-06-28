@@ -28,7 +28,7 @@ export function PracticeHub({ bootstrap, onDone }: Props) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ score: number; total: number; xp: number; domain: string } | null>(null);
-  const [tab, setTab] = useState<'quiz' | 'paths'>('quiz');
+  const [tab, setTab] = useState<'workout' | 'quiz' | 'paths'>('workout');
   const [openPath, setOpenPath] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const remaining = bootstrap.daily_limit - bootstrap.today_attempts;
