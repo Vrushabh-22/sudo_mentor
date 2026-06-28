@@ -107,42 +107,34 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
-    // ---------- LLM sample generation ----------
-    if (action === "generate_sample") {
-      const { prompt_id, vars } = body;
-      const { data: pr, error: pe } = await admin.from("practice_prompts").select("*").eq("id", prompt_id).single();
-      if (pe || !pr) throw pe || new Error("prompt not found");
+    // ---------- bulk insert items (Excel import) ----------
+    if (action === "bulk_insert_items") {
+      const subtopic_id = String(body.subtopic_id || "");
+      const kind = String(body.kind || "");
+      const status = body.status === "draft" ? "draft" : "approved";
+      const items: any[] = Array.isArray(body.items) ? body.items : [];
+      if (!subtopic_id || !kind || items.length === 0) return json({ error: "subtopic_id, kind and items required" }, 400);
 
-      const v = vars || {};
-      const filled = String(pr.user_prompt_template || "")
-        .replaceAll("{candidate_stream}", v.stream || "general")
-        .replaceAll("{difficulty}", v.difficulty || "medium")
-        .replaceAll("{recent_topics}", (v.recent_topics || []).join(", "));
+      const rows = items.map((it: any) => ({
+        subtopic_id,
+        kind,
+        payload: it.payload,
+        difficulty: it.difficulty || "medium",
+        stream_tag: it.stream_tag || null,
+        status,
+        source: "excel",
+        created_by: userRes.user.id,
+      }));
 
-      const sys = pr.system_prompt || `You generate a single ${pr.kind} practice item as strict JSON. No prose, no markdown fences.`;
-      const schemaHint = pr.schema_json
-        ? `\n\nReturn JSON matching this schema:\n${JSON.stringify(pr.schema_json)}`
-        : pr.kind === "mcq"
-          ? `\n\nReturn JSON: { "question": string, "options": string[4], "correct_index": 0-3, "explanation": string }`
-          : `\n\nReturn JSON: { "prompt": string, "rubric": string[] }`;
-
-      const messages = [
-        { role: "system" as const, content: sys + schemaHint },
-        ...(Array.isArray(pr.few_shot) ? pr.few_shot.flatMap((ex: any) => [
-          { role: "user" as const, content: String(ex.input || "") },
-          { role: "assistant" as const, content: JSON.stringify(ex.output || {}) },
-        ]) : []),
-        { role: "user" as const, content: filled || "Generate one item." },
-      ];
-
-      const payload = await callLLMJson<any>(authHeader, {
-        feature: `practice.sample.${pr.kind}`,
-        messages,
-        model: pr.model_override || undefined,
-        temperature: Number(pr.temperature ?? 0.7),
-      });
-
-      return json({ ok: true, payload });
+      let inserted = 0; let failed = 0; const errors: string[] = [];
+      const chunkSize = 200;
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        const chunk = rows.slice(i, i + chunkSize);
+        const { error, count } = await admin.from("practice_items").insert(chunk, { count: "exact" });
+        if (error) { failed += chunk.length; errors.push(error.message); }
+        else inserted += (count ?? chunk.length);
+      }
+      return json({ ok: true, inserted, failed, errors });
     }
 
     return json({ error: "unknown action" }, 400);
