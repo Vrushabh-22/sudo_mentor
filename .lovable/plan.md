@@ -1,29 +1,32 @@
-## Diagnosis
+## Why the mentor profile form stopped appearing
 
-The Quick Profile Setup card (`ProfileFormCard`) calls `invokeV4({ action: 'patch_profile', ... })`. In our project, `src/lib/candidatePortalV4Client.ts` only implements `get_profile` and `list_my_tenants` — **everything else (including `patch_profile`) silently returns `{ data: {}, error: null }`**. So the form shows "Saved!" but **nothing is written to the database**.
+`MentorCopilot.buildGreeting` only shows the inline `[ACTION:profile_form:...]` card when `candidate.profile_completeness < 60`. The greeting check is the **only** place that reliably renders the form — the LLM is asked to emit the tag on subsequent turns, but it often doesn't.
 
-That's why on the next mentor turn, AlphaMentor still sees `stream/institution/graduation_year/cgpa/skills` as unknown and the "Tell me about yourself" sample answer keeps showing `[Your Institution]`, `[Your Degree]` placeholders for `akshay.deshmukh@techademy.com`.
+For users who signed in starting yesterday, several basic fields (`first_name`, `last_name`, `headline`, `location`, `about`, `institution`, `course`, `cgpa`, `skills`) already get partially populated (Google sign-in fills name; previous saves filled some others), pushing `profile_completeness` past 60. So the form is suppressed even though `stream`, `branch`, `graduation_year`, `cgpa`, or `skills` may still be empty.
 
-Target table already exists: `public.candidates` has the right columns — `stream`, `branch`, `institution`, `graduation_year` (int), `cgpa` (numeric), `skills_v4` (jsonb), plus `first_name`, `last_name`, `headline`, `bio`, `location`, `phone`, `avatar_url`, `resume_url`, and a `profile_extra` jsonb catch-all.
+On top of that, `patch_profile` (just fixed) never recomputes `profile_completeness`, so the value stored in DB drifts from reality.
+
+## Source of truth
+
+Edit Profile (`CandidateProfileV4.tsx`) already calls `invokeV4({ action: 'patch_profile' })` — same path as the mentor's Quick Profile. So they share the same write path into `public.candidates`. The only mismatch is the *trigger* and the *completeness math*.
 
 ## Fix
 
-Implement `patch_profile` in `src/lib/candidatePortalV4Client.ts`:
+1. **Centralize completeness in one helper** — new `src/lib/profileCompleteness.ts` exporting `computeProfileCompleteness(c)` using the field set both screens care about: `first_name, last_name, headline, about, location, stream, branch, institution, graduation_year, cgpa, skills (count>0)`. Used by both Edit Profile display and patch_profile write.
 
-1. Get current session; resolve `candidates.id` via `user_id = auth.uid()`.
-2. Whitelist known columns and update them directly on `candidates`:
-   `first_name, last_name, phone, headline, bio (from "about"), location, avatar_url (from "photo_url"), resume_url, stream, branch, institution, graduation_year, cgpa, skills_v4, profile_completeness`.
-3. Anything not in the whitelist (e.g. `linkedin_url`, `social_links`, `certifications`, `projects`) gets merged into the existing `profile_extra` jsonb so we don't lose extension fields.
-4. Also normalize: if caller sends `skills` (string), `ProfileFormCard` already converts it to `skills_v4` — keep that. If caller sends legacy `skills` array of strings, mirror into the `skills` text[] column too.
-5. Return `{ data: { ok: true }, error }`. RLS on `candidates` already lets a user update their own row (auth.uid() = user_id).
+2. **patch_profile recomputes & stores `profile_completeness`** — `src/lib/candidatePortalV4Client.ts`: after merging the update, read the resulting row (or merge in-memory) and write `profile_completeness` so DB stays accurate. This means every save (Quick Profile or Edit Profile) keeps the value fresh.
 
-No DB migration needed — columns already exist.
+3. **Mentor greeting uses missing-essentials, not completeness threshold** — `src/components/candidate/v4/MentorCopilot.tsx`:
+   - Replace the `profile_completeness >= 60` check with a `missingEssentials(candidate)` list (stream, branch, graduation_year, cgpa, skills, institution).
+   - If anything is missing, render the greeting with `[ACTION:profile_form:fields=<missing>]` so only the truly-missing fields are asked.
+   - Add a compact "Complete your profile →" chip under the input that opens the **Edit Profile** tab (sets active tab to `profile`) when at least one essential is missing — so even after the first greeting passes, the user has a one-click path to the full editor. Uses an `onOpenProfile` callback already plumbed via `V4Shell`.
+
+4. **Edit Profile reads completeness from the same helper** so the progress bar matches what the mentor uses to decide whether to nudge.
+
+No DB migration, no edge function change, no UI redesign. Just three files touched plus one new shared helper.
 
 ## Verification
 
-- Submit Quick Profile in mentor → run `select stream, institution, graduation_year, cgpa, skills_v4 from candidates where email='akshay.deshmukh@techademy.com'`. Values should be present.
-- Re-open mentor and ask "Tell me about yourself" — sample answer should use real institution / degree / skills instead of `[Your Institution]` placeholders.
-
-## Scope
-
-Single file edit: `src/lib/candidatePortalV4Client.ts`. No schema changes, no edge function changes, no UI changes.
+- Existing user with `profile_completeness=70` but missing `stream`: open Mentor → profile form card appears with only `stream` field. Submit → DB row gets `stream` plus refreshed `profile_completeness`. Reload mentor → no form, just normal greeting.
+- Edit Profile shows the same percentage the mentor uses.
+- Quick Profile submit + Edit Profile submit both end up writing the same columns (`stream`, `branch`, `institution`, `graduation_year`, `cgpa`, `skills_v4`, mirrored `skills`).
