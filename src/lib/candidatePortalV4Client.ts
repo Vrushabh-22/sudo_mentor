@@ -95,15 +95,20 @@ export async function invokeV4<T = any>(body: Record<string, any>): Promise<{ da
           .filter((s: any) => typeof s === "string" && s.length > 0);
       }
 
-      // Merge profile_extra rather than overwrite
+      // Fetch existing row to (a) merge profile_extra and (b) recompute completeness
+      const { data: existing } = await supabase
+        .from("candidates")
+        .select("*")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+
       if (Object.keys(extra).length > 0) {
-        const { data: existing } = await supabase
-          .from("candidates")
-          .select("profile_extra")
-          .eq("user_id", session.user.id)
-          .maybeSingle();
         update.profile_extra = { ...((existing as any)?.profile_extra || {}), ...extra };
       }
+
+      // Compute completeness from the merged candidate snapshot
+      const merged = { ...((existing as any) || {}), ...update };
+      update.profile_completeness = computeProfileCompleteness(merged);
 
       if (Object.keys(update).length === 0) {
         return { data: { ok: true } as any, error: null };
