@@ -103,7 +103,7 @@ export async function invokeV4<T = any>(body: Record<string, any>): Promise<{ da
 
       const { error } = await supabase
         .from("candidates")
-        .update(update)
+        .update(update as any)
         .eq("user_id", session.user.id);
       if (error) return { data: null, error };
       return { data: { ok: true } as any, error: null };
