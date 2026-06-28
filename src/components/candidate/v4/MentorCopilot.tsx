@@ -10,6 +10,7 @@ import { MessageRenderer } from './chat/MessageRenderer';
 import { LearningPathView } from './LearningPathView';
 import { MockInterviewOverlay } from './MockInterviewOverlay';
 import { InterviewRecapCard, type InterviewRecap } from './InterviewRecapCard';
+import { missingEssentials } from '@/lib/profileCompleteness';
 
 interface Msg {
   id: string;
@@ -20,7 +21,7 @@ interface Msg {
   recap?: InterviewRecap;
 }
 
-interface Props { candidate: V4Profile; onProfileChanged: () => void }
+interface Props { candidate: V4Profile; onProfileChanged: () => void; onOpenProfile?: () => void }
 
 const NUGGETS: Array<{ label: string; icon: any; prompt: string; mode?: 'interview' }> = [
   { label: 'Start mock interview', icon: Mic, prompt: 'INTERVIEW_START', mode: 'interview' },
@@ -84,10 +85,10 @@ function isInterviewInternal(msg: { role: string; content: string }): boolean {
 }
 
 function buildGreeting(candidate: V4Profile): Msg {
-  const ready = candidate.profile_completeness && candidate.profile_completeness >= 60;
-  const content = ready
+  const missing = missingEssentials(candidate);
+  const content = missing.length === 0
     ? `Hey ${candidate.first_name || 'there'}! I'm your AlphaMentor. Ready to level up your placement game? Ask me about skills to learn, mock interviews, or a personalised learning path.`
-    : `Hi ${candidate.first_name || 'there'}! I'm AlphaMentor 🎓. Quick setup so I can guide you better — fill the form below 👇\n[ACTION:profile_form:fields=stream,branch,graduation_year,cgpa,skills]`;
+    : `Hi ${candidate.first_name || 'there'}! I'm AlphaMentor 🎓. Quick setup so I can guide you better — fill the form below 👇\n[ACTION:profile_form:fields=${missing.join(',')}]`;
 
   return {
     id: 'mentor-greeting',
