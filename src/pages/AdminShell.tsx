@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, LogOut, ShieldCheck } from "lucide-react";
 import { AdminCandidatesList } from "@/components/admin/AdminCandidatesList";
 import { AdminSettings } from "@/components/admin/AdminSettings";
+import { PracticeContentSettings } from "@/components/admin/PracticeContentSettings";
 
 export default function AdminShell() {
   const { loading, isAdmin, email } = useIsAdmin();
