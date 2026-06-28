@@ -49,10 +49,14 @@ export default function AdminShell() {
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
             <TabsTrigger value="candidates">Candidates</TabsTrigger>
+            <TabsTrigger value="practice">Practice Content</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
           <TabsContent value="candidates" className="mt-6">
             <AdminCandidatesList />
+          </TabsContent>
+          <TabsContent value="practice" className="mt-6">
+            <PracticeContentSettings />
           </TabsContent>
           <TabsContent value="settings" className="mt-6">
             <AdminSettings />
