@@ -296,7 +296,10 @@ export function AdminSettings() {
         </CardContent>
       </Card>
 
+      <AzureStorageSettings />
+
       <div className="grid gap-6 md:grid-cols-2">
+
         <Card>
           <CardHeader>
             <CardTitle>Google OAuth</CardTitle>
