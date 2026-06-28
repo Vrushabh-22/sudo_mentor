@@ -49,6 +49,65 @@ export async function invokeV4<T = any>(body: Record<string, any>): Promise<{ da
     if (action === "list_my_tenants") {
       return { data: { tenants: [] } as any, error: null };
     }
+    if (action === "patch_profile") {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return { data: null, error: new Error("Not authenticated") };
+
+      // Whitelist of direct columns on public.candidates
+      const COLS = new Set([
+        "first_name", "last_name", "phone", "headline", "location",
+        "avatar_url", "resume_url", "resume_filename",
+        "stream", "branch", "institution", "graduation_year", "cgpa",
+        "skills_v4", "skills", "profile_completeness", "full_name",
+      ]);
+      // Field renames coming from legacy V4 payloads
+      const RENAME: Record<string, string> = {
+        about: "bio",
+        photo_url: "avatar_url",
+      };
+
+      const { action: _ignored, ...input } = body;
+      const update: Record<string, any> = {};
+      const extra: Record<string, any> = {};
+
+      for (const [k, v] of Object.entries(input)) {
+        if (v === undefined) continue;
+        const key = RENAME[k] || k;
+        if (key === "bio" || COLS.has(key)) {
+          update[key] = v;
+        } else {
+          extra[key] = v;
+        }
+      }
+
+      // Mirror skills_v4 names into the text[] skills column for backward compat
+      if (Array.isArray(update.skills_v4) && !update.skills) {
+        update.skills = update.skills_v4
+          .map((s: any) => (typeof s === "string" ? s : s?.name))
+          .filter((s: any) => typeof s === "string" && s.length > 0);
+      }
+
+      // Merge profile_extra rather than overwrite
+      if (Object.keys(extra).length > 0) {
+        const { data: existing } = await supabase
+          .from("candidates")
+          .select("profile_extra")
+          .eq("user_id", session.user.id)
+          .maybeSingle();
+        update.profile_extra = { ...((existing as any)?.profile_extra || {}), ...extra };
+      }
+
+      if (Object.keys(update).length === 0) {
+        return { data: { ok: true } as any, error: null };
+      }
+
+      const { error } = await supabase
+        .from("candidates")
+        .update(update as any)
+        .eq("user_id", session.user.id);
+      if (error) return { data: null, error };
+      return { data: { ok: true } as any, error: null };
+    }
     return { data: {} as any, error: null };
   } catch (error) {
     return { data: null, error };
