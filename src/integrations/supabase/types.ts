@@ -1460,11 +1460,13 @@ export type Database = {
           default_kind: string
           description: string | null
           enabled: boolean
+          enabled_kinds: string[]
           id: string
           name: string
           pillar_id: string
           slug: string
           sort_order: number
+          target_counts: Json
           time_budget_seconds: number
           updated_at: string
         }
@@ -1474,11 +1476,13 @@ export type Database = {
           default_kind?: string
           description?: string | null
           enabled?: boolean
+          enabled_kinds?: string[]
           id?: string
           name: string
           pillar_id: string
           slug: string
           sort_order?: number
+          target_counts?: Json
           time_budget_seconds?: number
           updated_at?: string
         }
@@ -1488,11 +1492,13 @@ export type Database = {
           default_kind?: string
           description?: string | null
           enabled?: boolean
+          enabled_kinds?: string[]
           id?: string
           name?: string
           pillar_id?: string
           slug?: string
           sort_order?: number
+          target_counts?: Json
           time_budget_seconds?: number
           updated_at?: string
         }
