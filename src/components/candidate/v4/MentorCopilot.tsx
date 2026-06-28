@@ -97,7 +97,7 @@ function buildGreeting(candidate: V4Profile): Msg {
   };
 }
 
-export function MentorCopilot({ candidate, onProfileChanged }: Props) {
+export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Props) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
@@ -373,10 +373,19 @@ export function MentorCopilot({ candidate, onProfileChanged }: Props) {
         <div className="h-8 w-8 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
           <Sparkles className="h-4 w-4 text-white" />
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <div className="font-semibold text-sm">AlphaMentor</div>
           <div className="text-[10px] text-muted-foreground">Your personal placement coach</div>
         </div>
+        {missingEssentials(candidate).length > 0 && onOpenProfile && (
+          <button
+            onClick={onOpenProfile}
+            className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-white border border-violet-200 text-violet-700 hover:bg-violet-50 transition whitespace-nowrap"
+            title="Open full profile editor"
+          >
+            Complete profile →
+          </button>
+        )}
       </div>
 
       <div

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { getStorageUrl } from '@/utils/storageUrl';
 import { invokeV4 } from '@/lib/candidatePortalV4Client';
+import { computeProfileCompleteness } from '@/lib/profileCompleteness';
 import { toast } from '@/hooks/use-toast';
 import { Loader2, Plus, X, Sparkles, Pencil, Share2, MapPin, Mail, GraduationCap, Copy, Flame, Trophy, Linkedin } from 'lucide-react';
 import { ProfileShareDialog } from './ProfileShareDialog';
@@ -187,8 +188,7 @@ export function CandidateProfileV4({ candidate, onSaved }: Props) {
   const skills = (c.skills_v4 || []) as any[];
   const xp = (c as any).xp_total ?? 0;
   const streak = (c as any).streak_days ?? 0;
-  const completeness = (c as any).profile_completeness ?? Math.min(100, Math.max(0,
-    [c.first_name, c.last_name, c.headline, c.about, c.location, c.institution, c.course, c.cgpa, skills.length].filter(Boolean).length * 11));
+  const completeness = computeProfileCompleteness(c);
   const eduLine = [c.course, c.branch].filter(Boolean).join(' · ') || c.stream || 'Add education';
 
   async function copyShortLink() {
