@@ -1,8 +1,7 @@
-// Admin-only CRUD for the practice content tree (pillars / subtopics / prompts / items)
-// plus on-demand LLM sample generation routed through the central llm-caller.
+// Admin-only CRUD for the practice content tree (pillars / subtopics / items)
+// plus bulk Excel import of questions into the item bank.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders } from "../_shared/cors.ts";
-import { callLLMJson } from "../_shared/llmCallerClient.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
