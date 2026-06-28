@@ -147,17 +147,19 @@ export function PracticeHub({ bootstrap, onDone }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex gap-2 bg-white border border-violet-100 rounded-full p-1 w-fit">
-        {(['quiz', 'paths'] as const).map((t) => (
+        {(['workout', 'quiz', 'paths'] as const).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${tab === t ? 'bg-violet-600 text-white shadow' : 'text-slate-600'}`}>
-            {t === 'quiz' ? 'Daily Quiz' : 'Learning Paths'}
+            {t === 'workout' ? '🔥 Workout' : t === 'quiz' ? 'Daily Quiz' : 'Learning Paths'}
           </button>
         ))}
       </div>
 
-      {tab === 'paths' ? (
-        <MyLearningPaths onOpen={(id) => setOpenPath(id)} />
-      ) : (
+      {tab === 'workout' && <DailyWorkout onDone={onDone} />}
+
+      {tab === 'paths' && <MyLearningPaths onOpen={(id) => setOpenPath(id)} />}
+
+      {tab === 'quiz' && (
         <>
           <Card className="p-4 bg-gradient-to-br from-emerald-50 to-teal-50 border-emerald-200">
             <div className="flex items-center justify-between">
