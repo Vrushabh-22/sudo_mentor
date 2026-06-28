@@ -68,7 +68,6 @@ export function PracticeContentSettings() {
 
   const addSubtopic = async () => {
     if (!activePillar) return;
-    const name = prompt && window.prompt("Subtopic name?");
     const n = window.prompt("Subtopic name?", "New subtopic"); if (!n) return;
     const slug = n.toLowerCase().replaceAll(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
     const { data } = await practiceAdmin<{ subtopic: Subtopic }>({
