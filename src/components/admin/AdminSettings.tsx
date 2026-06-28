@@ -45,7 +45,7 @@ export function AdminSettings() {
       <div className="min-w-0">
         {section === "llm" && <LlmProviderSettings />}
         {section === "azure" && <AzureStorageSettings />}
-        {section === "practice" && <PracticeContentSettings />}
+        
       </div>
     </div>
   );
