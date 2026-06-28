@@ -1,18 +1,28 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { practiceAdmin } from "@/lib/practiceClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, Sparkles, CheckCircle2, Save } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Loader2, Plus, Trash2, Download, Upload, CheckCircle2, AlertCircle, FileSpreadsheet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Kind, KIND_LABELS, TEMPLATES, downloadTemplate, parseRows, readWorkbook, ParsedRow,
+} from "./practice/QuestionTemplates";
 
 type Pillar = { id: string; slug: string; name: string; icon: string | null; color: string | null; sort_order: number; enabled: boolean; is_stream_aware: boolean; description: string | null };
-type Subtopic = { id: string; pillar_id: string; slug: string; name: string; sort_order: number; default_difficulty: string; default_kind: string; time_budget_seconds: number; enabled: boolean; description: string | null };
-type Prompt = { id?: string; subtopic_id: string; kind: string; system_prompt: string; user_prompt_template: string; few_shot: any; temperature: number; is_active: boolean; model_override?: string | null; schema_json?: any };
+type Subtopic = {
+  id: string; pillar_id: string; slug: string; name: string; sort_order: number;
+  default_difficulty: string; default_kind: string; time_budget_seconds: number;
+  enabled: boolean; description: string | null;
+  enabled_kinds: string[]; target_counts: Record<string, number>;
+};
 type Item = { id: string; subtopic_id: string; kind: string; payload: any; status: string; source: string; difficulty: string; stream_tag: string | null };
+
+const ALL_KINDS: Kind[] = ["mcq", "scenario", "true_false", "fill_blanks", "subjective", "speech", "ordering"];
 
 export function PracticeContentSettings() {
   const { toast } = useToast();
@@ -21,11 +31,7 @@ export function PracticeContentSettings() {
   const [activePillar, setActivePillar] = useState<Pillar | null>(null);
   const [subtopics, setSubtopics] = useState<Subtopic[]>([]);
   const [activeSub, setActiveSub] = useState<Subtopic | null>(null);
-  const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [items, setItems] = useState<Item[]>([]);
-  const [sample, setSample] = useState<any>(null);
-  const [generating, setGenerating] = useState(false);
-  const [savingPrompt, setSavingPrompt] = useState(false);
 
   const loadPillars = useCallback(async () => {
     setLoading(true);
@@ -39,24 +45,16 @@ export function PracticeContentSettings() {
 
   const loadSubtopics = useCallback(async (pid: string) => {
     const { data } = await practiceAdmin<{ subtopics: Subtopic[] }>({ action: "list_subtopics", pillar_id: pid });
-    setSubtopics(data?.subtopics || []);
-    setActiveSub(null); setPrompt(null); setItems([]); setSample(null);
+    setSubtopics((data?.subtopics || []).map((s) => ({ ...s, enabled_kinds: s.enabled_kinds || [], target_counts: s.target_counts || {} })));
+    setActiveSub(null); setItems([]);
   }, []);
 
   useEffect(() => { if (activePillar) loadSubtopics(activePillar.id); }, [activePillar, loadSubtopics]);
 
-  const loadPromptAndItems = useCallback(async (s: Subtopic) => {
-    setActiveSub(s); setSample(null);
-    const [{ data: pData }, { data: iData }] = await Promise.all([
-      practiceAdmin<{ prompts: Prompt[] }>({ action: "list_prompts", subtopic_id: s.id }),
-      practiceAdmin<{ items: Item[] }>({ action: "list_items", subtopic_id: s.id }),
-    ]);
-    const existing = pData?.prompts?.[0];
-    setPrompt(existing || {
-      subtopic_id: s.id, kind: s.default_kind, system_prompt: "", user_prompt_template: "",
-      few_shot: [], temperature: 0.7, is_active: true,
-    });
-    setItems(iData?.items || []);
+  const loadItems = useCallback(async (s: Subtopic) => {
+    setActiveSub(s);
+    const { data } = await practiceAdmin<{ items: Item[] }>({ action: "list_items", subtopic_id: s.id });
+    setItems(data?.items || []);
   }, []);
 
   const upsertPillar = async (patch: Partial<Pillar>) => {
@@ -72,16 +70,17 @@ export function PracticeContentSettings() {
     const slug = n.toLowerCase().replaceAll(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
     const { data } = await practiceAdmin<{ subtopic: Subtopic }>({
       action: "upsert_subtopic",
-      subtopic: { pillar_id: activePillar.id, name: n, slug, sort_order: subtopics.length * 10, default_kind: "mcq", default_difficulty: "medium", time_budget_seconds: 180, enabled: true },
+      subtopic: { pillar_id: activePillar.id, name: n, slug, sort_order: subtopics.length * 10, default_kind: "mcq", default_difficulty: "medium", time_budget_seconds: 180, enabled: true, enabled_kinds: ["mcq"], target_counts: { mcq: 20 } },
     });
-    if (data?.subtopic) setSubtopics((xs) => [...xs, data.subtopic]);
+    if (data?.subtopic) setSubtopics((xs) => [...xs, { ...data.subtopic, enabled_kinds: data.subtopic.enabled_kinds || [], target_counts: data.subtopic.target_counts || {} }]);
   };
 
   const updateSub = async (s: Subtopic, patch: Partial<Subtopic>) => {
     const { data } = await practiceAdmin<{ subtopic: Subtopic }>({ action: "upsert_subtopic", subtopic: { ...s, ...patch } });
     if (data?.subtopic) {
-      setSubtopics((xs) => xs.map((x) => x.id === s.id ? data.subtopic : x));
-      if (activeSub?.id === s.id) setActiveSub(data.subtopic);
+      const merged = { ...data.subtopic, enabled_kinds: data.subtopic.enabled_kinds || [], target_counts: data.subtopic.target_counts || {} };
+      setSubtopics((xs) => xs.map((x) => x.id === s.id ? merged : x));
+      if (activeSub?.id === s.id) setActiveSub(merged);
     }
   };
 
@@ -89,39 +88,15 @@ export function PracticeContentSettings() {
     if (!confirm("Delete subtopic and all its items?")) return;
     await practiceAdmin({ action: "delete_subtopic", id });
     setSubtopics((xs) => xs.filter((x) => x.id !== id));
-    if (activeSub?.id === id) { setActiveSub(null); setPrompt(null); setItems([]); }
+    if (activeSub?.id === id) { setActiveSub(null); setItems([]); }
   };
 
-  const savePrompt = async () => {
-    if (!prompt) return;
-    setSavingPrompt(true);
-    const { data, error } = await practiceAdmin<{ prompt: Prompt }>({ action: "upsert_prompt", prompt });
-    setSavingPrompt(false);
-    if (error) { toast({ title: "Save failed", description: error.message, variant: "destructive" }); return; }
-    if (data?.prompt) { setPrompt(data.prompt); toast({ title: "Prompt saved" }); }
-  };
+  const reloadItems = async () => { if (activeSub) await loadItems(activeSub); };
 
-  const generate = async () => {
-    if (!prompt?.id) { toast({ title: "Save prompt first", variant: "destructive" }); return; }
-    setGenerating(true); setSample(null);
-    const { data, error } = await practiceAdmin<{ payload: any }>({ action: "generate_sample", prompt_id: prompt.id });
-    setGenerating(false);
-    if (error) { toast({ title: "Generation failed", description: error.message, variant: "destructive" }); return; }
-    setSample(data?.payload);
-  };
-
-  const promote = async () => {
-    if (!activeSub || !sample) return;
-    const { data } = await practiceAdmin<{ item: Item }>({
-      action: "upsert_item",
-      item: { subtopic_id: activeSub.id, prompt_id: prompt?.id, kind: prompt?.kind || "mcq", payload: sample, status: "draft", source: "llm", difficulty: "medium" },
-    });
-    if (data?.item) { setItems((xs) => [data.item, ...xs]); setSample(null); toast({ title: "Added to bank as draft" }); }
-  };
-
-  const approve = async (it: Item) => {
-    await practiceAdmin({ action: "set_item_status", id: it.id, status: "approved" });
-    setItems((xs) => xs.map((x) => x.id === it.id ? { ...x, status: "approved" } : x));
+  const toggleStatus = async (it: Item) => {
+    const next = it.status === "approved" ? "draft" : "approved";
+    await practiceAdmin({ action: "set_item_status", id: it.id, status: next });
+    setItems((xs) => xs.map((x) => x.id === it.id ? { ...x, status: next } : x));
   };
 
   const delItem = async (id: string) => {
@@ -136,10 +111,10 @@ export function PracticeContentSettings() {
     <div className="space-y-4">
       <div>
         <h2 className="text-lg font-semibold">Practice Content</h2>
-        <p className="text-sm text-muted-foreground">Pillars → Subtopics → LLM Prompt Studio → Item bank. Approved items are served in the daily workout.</p>
+        <p className="text-sm text-muted-foreground">Pillars → Subtopics → Question Bank. Approved items power the daily workout.</p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[220px_260px_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[220px_240px_1fr]">
         {/* Pillars */}
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Pillars</CardTitle></CardHeader>
@@ -186,115 +161,296 @@ export function PracticeContentSettings() {
               <ul className="space-y-1">
                 {subtopics.map((s) => (
                   <li key={s.id} className={`flex items-center gap-1 px-1 rounded ${activeSub?.id === s.id ? "bg-muted" : ""}`}>
-                    <button onClick={() => loadPromptAndItems(s)} className="flex-1 text-left text-sm py-1.5 truncate">{s.name}</button>
+                    <button onClick={() => loadItems(s)} className="flex-1 text-left text-sm py-1.5 truncate">{s.name}</button>
                     <button onClick={() => delSub(s.id)} className="text-muted-foreground hover:text-destructive p-1"><Trash2 className="h-3.5 w-3.5" /></button>
                   </li>
                 ))}
               </ul>
             )}
-            {activeSub && (
-              <div className="border-t mt-2 pt-2 space-y-2 px-1 text-xs">
-                <div><Label className="text-xs">Kind</Label>
-                  <select value={activeSub.default_kind} onChange={(e) => updateSub(activeSub, { default_kind: e.target.value })} className="w-full mt-0.5 text-xs border rounded px-2 py-1 bg-background">
-                    {["mcq","speech","scenario","writing","mock"].map((k) => <option key={k} value={k}>{k}</option>)}
-                  </select>
-                </div>
-                <div><Label className="text-xs">Time budget (s)</Label>
-                  <Input type="number" value={activeSub.time_budget_seconds} className="h-7 text-xs" onChange={(e) => updateSub(activeSub, { time_budget_seconds: Number(e.target.value) || 180 })} />
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
 
-        {/* Prompt Studio + Items */}
+        {/* Right pane */}
         <div className="space-y-4 min-w-0">
           {!activeSub ? (
-            <Card><CardContent className="py-12 text-center text-sm text-muted-foreground">Select a subtopic to edit its prompt and review items.</CardContent></Card>
+            <Card><CardContent className="py-12 text-center text-sm text-muted-foreground">Select a subtopic to configure question types and upload questions.</CardContent></Card>
           ) : (
             <>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2"><Sparkles className="h-4 w-4" /> Prompt Studio · {activeSub.name}</CardTitle>
-                  <CardDescription>Template runs through the central <code>llm-caller</code>. Use <code>{"{candidate_stream}"}</code>, <code>{"{difficulty}"}</code> as placeholders.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {prompt && <>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label>Kind</Label>
-                        <select value={prompt.kind} onChange={(e) => setPrompt({ ...prompt, kind: e.target.value })} className="w-full text-sm border rounded px-2 py-1.5 bg-background">
-                          {["mcq","speech","scenario","writing","mock"].map((k) => <option key={k} value={k}>{k}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <Label>Temperature</Label>
-                        <Input type="number" step="0.1" min={0} max={2} value={prompt.temperature} onChange={(e) => setPrompt({ ...prompt, temperature: Number(e.target.value) })} />
-                      </div>
-                    </div>
-                    <div>
-                      <Label>System prompt</Label>
-                      <Textarea rows={3} value={prompt.system_prompt} onChange={(e) => setPrompt({ ...prompt, system_prompt: e.target.value })} placeholder="You are an expert quiz writer..." />
-                    </div>
-                    <div>
-                      <Label>User prompt template</Label>
-                      <Textarea rows={4} value={prompt.user_prompt_template} onChange={(e) => setPrompt({ ...prompt, user_prompt_template: e.target.value })} placeholder="Generate one medium-difficulty {kind} question on percentages for a {candidate_stream} student." />
-                    </div>
-                    <div className="flex gap-2">
-                      <Button onClick={savePrompt} disabled={savingPrompt}>
-                        {savingPrompt ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />} Save prompt
-                      </Button>
-                      <Button variant="secondary" onClick={generate} disabled={generating || !prompt.id}>
-                        {generating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />} Generate sample
-                      </Button>
-                    </div>
-                    {sample && (
-                      <div className="mt-2 border rounded-lg p-3 bg-muted/40">
-                        <div className="text-xs uppercase text-muted-foreground mb-1">Sample preview</div>
-                        <pre className="text-xs whitespace-pre-wrap break-words">{JSON.stringify(sample, null, 2)}</pre>
-                        <div className="mt-2 flex justify-end">
-                          <Button size="sm" onClick={promote}><Plus className="h-3.5 w-3.5 mr-1" /> Add to bank (draft)</Button>
-                        </div>
-                      </div>
-                    )}
-                  </>}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-base">Item bank ({items.length})</CardTitle></CardHeader>
-                <CardContent>
-                  {items.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-4 text-center">No items yet. Generate one above, then approve.</p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {items.map((it) => (
-                        <li key={it.id} className="border rounded-lg p-3">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs uppercase tracking-wide text-muted-foreground">{it.kind} · {it.source} · {it.status}</span>
-                            <div className="flex gap-1">
-                              {it.status !== "approved" && <Button size="sm" variant="secondary" onClick={() => approve(it)}><CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve</Button>}
-                              <Button size="sm" variant="ghost" onClick={() => delItem(it.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                            </div>
-                          </div>
-                          <div className="text-sm font-medium">{it.payload?.question || it.payload?.prompt || "(no preview)"}</div>
-                          {Array.isArray(it.payload?.options) && (
-                            <ul className="mt-1 text-xs text-muted-foreground list-decimal list-inside">
-                              {it.payload.options.map((o: string, i: number) => (
-                                <li key={i} className={i === it.payload.correct_index ? "text-emerald-600 font-medium" : ""}>{o}</li>
-                              ))}
-                            </ul>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </CardContent>
-              </Card>
+              <QuestionTypesCard subtopic={activeSub} onSave={(patch) => updateSub(activeSub, patch)} items={items} />
+              <UploadCard subtopic={activeSub} onImported={reloadItems} />
+              <ItemBankCard items={items} subtopic={activeSub} onToggle={toggleStatus} onDelete={delItem} />
             </>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+/* ------------------------- Question Types card ------------------------- */
+function QuestionTypesCard({ subtopic, onSave, items }: {
+  subtopic: Subtopic; onSave: (p: Partial<Subtopic>) => Promise<void>; items: Item[];
+}) {
+  const [enabled, setEnabled] = useState<string[]>(subtopic.enabled_kinds || []);
+  const [targets, setTargets] = useState<Record<string, number>>(subtopic.target_counts || {});
+  const [budget, setBudget] = useState<number>(subtopic.time_budget_seconds || 180);
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    setEnabled(subtopic.enabled_kinds || []);
+    setTargets(subtopic.target_counts || {});
+    setBudget(subtopic.time_budget_seconds || 180);
+  }, [subtopic.id]); // eslint-disable-line
+
+  const toggle = (k: Kind) => {
+    setEnabled((xs) => xs.includes(k) ? xs.filter((x) => x !== k) : [...xs, k]);
+    setTargets((t) => ({ ...t, [k]: t[k] ?? 20 }));
+  };
+
+  const save = async () => {
+    setSaving(true);
+    await onSave({ enabled_kinds: enabled, target_counts: targets, time_budget_seconds: budget });
+    setSaving(false);
+    toast({ title: "Saved" });
+  };
+
+  const counts = (k: string) => items.filter((i) => i.kind === k && i.status === "approved").length;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Question types · {subtopic.name}</CardTitle>
+        <CardDescription>Pick which question types this subtopic accepts and how many you aim to bank.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid sm:grid-cols-2 gap-2">
+          {ALL_KINDS.map((k) => {
+            const on = enabled.includes(k);
+            const tgt = targets[k] ?? 0;
+            const cur = counts(k);
+            const pct = tgt > 0 ? Math.min(100, Math.round((cur / tgt) * 100)) : 0;
+            return (
+              <div key={k} className={`border rounded-lg p-3 ${on ? "bg-muted/40" : ""}`}>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                    <input type="checkbox" checked={on} onChange={() => toggle(k)} />
+                    {KIND_LABELS[k]}
+                  </label>
+                  {on && (
+                    <Input
+                      type="number" min={0} className="h-7 w-20 text-xs"
+                      value={tgt}
+                      onChange={(e) => setTargets((t) => ({ ...t, [k]: Number(e.target.value) || 0 }))}
+                    />
+                  )}
+                </div>
+                {on && (
+                  <>
+                    <Progress value={pct} className="h-1.5 mt-1" />
+                    <div className="text-[11px] text-muted-foreground mt-1">{cur} of {tgt} approved</div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex items-end gap-3">
+          <div>
+            <Label className="text-xs">Time budget per item (sec)</Label>
+            <Input type="number" className="h-8 w-28" value={budget} onChange={(e) => setBudget(Number(e.target.value) || 180)} />
+          </div>
+          <Button onClick={save} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null} Save</Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ------------------------- Upload card ------------------------- */
+function UploadCard({ subtopic, onImported }: { subtopic: Subtopic; onImported: () => Promise<void> }) {
+  const { toast } = useToast();
+  const enabledKinds = (subtopic.enabled_kinds || []) as Kind[];
+  const [kind, setKind] = useState<Kind>(enabledKinds[0] || "mcq");
+  const [parsed, setParsed] = useState<ParsedRow[]>([]);
+  const [importStatus, setImportStatus] = useState<"draft" | "approved">("approved");
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { if (!enabledKinds.includes(kind) && enabledKinds[0]) setKind(enabledKinds[0]); }, [subtopic.id]); // eslint-disable-line
+
+  if (enabledKinds.length === 0) {
+    return (
+      <Card><CardContent className="py-6 text-sm text-muted-foreground text-center">
+        Enable at least one question type above to upload questions.
+      </CardContent></Card>
+    );
+  }
+
+  const onFile = async (f: File) => {
+    try {
+      const rows = await readWorkbook(f);
+      const result = parseRows(kind, rows);
+      setParsed(result);
+      toast({ title: `Parsed ${result.length} rows`, description: `${result.filter((r) => r.valid).length} valid` });
+    } catch (e: any) {
+      toast({ title: "Parse failed", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const doImport = async () => {
+    const valid = parsed.filter((r) => r.valid);
+    if (valid.length === 0) { toast({ title: "Nothing to import" }); return; }
+    setImporting(true);
+    const { data, error } = await practiceAdmin<{ inserted: number; failed: number; errors: string[] }>({
+      action: "bulk_insert_items",
+      subtopic_id: subtopic.id,
+      kind,
+      status: importStatus,
+      items: valid.map((r) => ({ payload: r.payload, difficulty: r.difficulty, stream_tag: r.stream_tag })),
+    });
+    setImporting(false);
+    if (error) { toast({ title: "Import failed", description: error.message, variant: "destructive" }); return; }
+    toast({ title: `Imported ${data?.inserted ?? 0}`, description: data?.failed ? `${data.failed} failed` : undefined });
+    setParsed([]);
+    if (fileRef.current) fileRef.current.value = "";
+    await onImported();
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2"><FileSpreadsheet className="h-4 w-4" /> Upload questions</CardTitle>
+        <CardDescription>{TEMPLATES[kind].help}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <Label className="text-xs">Question type</Label>
+            <select
+              value={kind}
+              onChange={(e) => { setKind(e.target.value as Kind); setParsed([]); }}
+              className="block h-9 text-sm border rounded px-2 bg-background"
+            >
+              {enabledKinds.map((k) => <option key={k} value={k}>{KIND_LABELS[k]}</option>)}
+            </select>
+          </div>
+          <Button variant="secondary" onClick={() => downloadTemplate(kind, subtopic.name)}>
+            <Download className="h-4 w-4 mr-2" /> Download template
+          </Button>
+          <div>
+            <Label className="text-xs">Import as</Label>
+            <select
+              value={importStatus} onChange={(e) => setImportStatus(e.target.value as any)}
+              className="block h-9 text-sm border rounded px-2 bg-background"
+            >
+              <option value="approved">Approved (live)</option>
+              <option value="draft">Draft (review later)</option>
+            </select>
+          </div>
+          <div className="flex-1">
+            <Label className="text-xs">Upload .xlsx</Label>
+            <Input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
+          </div>
+        </div>
+
+        {parsed.length > 0 && (
+          <div className="border rounded-lg overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 bg-muted/40 text-xs">
+              <span>
+                {parsed.filter((r) => r.valid).length} valid · {parsed.filter((r) => !r.valid).length} invalid
+              </span>
+              <Button size="sm" onClick={doImport} disabled={importing}>
+                {importing ? <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-2" />}
+                Import valid rows
+              </Button>
+            </div>
+            <div className="max-h-72 overflow-auto divide-y">
+              {parsed.map((r) => (
+                <div key={r.rowIndex} className="px-3 py-2 text-xs flex items-start gap-2">
+                  {r.valid
+                    ? <CheckCircle2 className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+                    : <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate">Row {r.rowIndex}: {r.preview || "(empty)"}</div>
+                    {!r.valid && <div className="text-destructive">{r.errors.join("; ")}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ------------------------- Item bank card ------------------------- */
+function ItemBankCard({ items, subtopic, onToggle, onDelete }: {
+  items: Item[]; subtopic: Subtopic; onToggle: (it: Item) => void; onDelete: (id: string) => void;
+}) {
+  const [kindFilter, setKindFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  const filtered = items.filter((it) =>
+    (kindFilter === "all" || it.kind === kindFilter) &&
+    (statusFilter === "all" || it.status === statusFilter)
+  );
+
+  const kindsInBank = Array.from(new Set(items.map((i) => i.kind)));
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Item bank ({items.length})</CardTitle>
+        <CardDescription>Approved items are served in the daily workout. Toggle to draft to hide from candidates.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex gap-2 text-xs">
+          <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value)} className="h-8 border rounded px-2 bg-background">
+            <option value="all">All types</option>
+            {kindsInBank.map((k) => <option key={k} value={k}>{KIND_LABELS[k as Kind] || k}</option>)}
+          </select>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-8 border rounded px-2 bg-background">
+            <option value="all">All status</option>
+            <option value="approved">Approved</option>
+            <option value="draft">Draft</option>
+          </select>
+        </div>
+
+        {filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">No items match.</p>
+        ) : (
+          <ul className="space-y-2 max-h-96 overflow-auto">
+            {filtered.map((it) => (
+              <li key={it.id} className="border rounded-lg p-3">
+                <div className="flex items-center justify-between mb-1 gap-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-[10px]">{it.kind}</Badge>
+                    <Badge variant={it.status === "approved" ? "default" : "secondary"} className="text-[10px]">{it.status}</Badge>
+                    <span className="text-[10px] text-muted-foreground">{it.source} · {it.difficulty}</span>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => onToggle(it)}>
+                      {it.status === "approved" ? "→ Draft" : "→ Approve"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => onDelete(it.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                  </div>
+                </div>
+                <div className="text-sm">{it.payload?.question || it.payload?.prompt || it.payload?.reference_text || "(no preview)"}</div>
+                {Array.isArray(it.payload?.options) && (
+                  <ul className="mt-1 text-xs text-muted-foreground list-decimal list-inside">
+                    {it.payload.options.map((o: string, i: number) => {
+                      const correct = i === it.payload.correct_index || (Array.isArray(it.payload.correct_indices) && it.payload.correct_indices.includes(i));
+                      return <li key={i} className={correct ? "text-emerald-600 font-medium" : ""}>{o}</li>;
+                    })}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }
