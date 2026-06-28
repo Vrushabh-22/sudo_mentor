@@ -453,6 +453,207 @@ export type Database = {
         }
         Relationships: []
       }
+      career_fitness_daily: {
+        Row: {
+          candidate_id: string
+          created_at: string
+          overall: number
+          per_pillar: Json
+          snapshot_date: string
+          streak_day: number
+        }
+        Insert: {
+          candidate_id: string
+          created_at?: string
+          overall: number
+          per_pillar?: Json
+          snapshot_date: string
+          streak_day?: number
+        }
+        Update: {
+          candidate_id?: string
+          created_at?: string
+          overall?: number
+          per_pillar?: Json
+          snapshot_date?: string
+          streak_day?: number
+        }
+        Relationships: []
+      }
+      career_fitness_daily_2026_06: {
+        Row: {
+          candidate_id: string
+          created_at: string
+          overall: number
+          per_pillar: Json
+          snapshot_date: string
+          streak_day: number
+        }
+        Insert: {
+          candidate_id: string
+          created_at?: string
+          overall: number
+          per_pillar?: Json
+          snapshot_date: string
+          streak_day?: number
+        }
+        Update: {
+          candidate_id?: string
+          created_at?: string
+          overall?: number
+          per_pillar?: Json
+          snapshot_date?: string
+          streak_day?: number
+        }
+        Relationships: []
+      }
+      career_fitness_daily_2026_07: {
+        Row: {
+          candidate_id: string
+          created_at: string
+          overall: number
+          per_pillar: Json
+          snapshot_date: string
+          streak_day: number
+        }
+        Insert: {
+          candidate_id: string
+          created_at?: string
+          overall: number
+          per_pillar?: Json
+          snapshot_date: string
+          streak_day?: number
+        }
+        Update: {
+          candidate_id?: string
+          created_at?: string
+          overall?: number
+          per_pillar?: Json
+          snapshot_date?: string
+          streak_day?: number
+        }
+        Relationships: []
+      }
+      career_fitness_daily_2026_08: {
+        Row: {
+          candidate_id: string
+          created_at: string
+          overall: number
+          per_pillar: Json
+          snapshot_date: string
+          streak_day: number
+        }
+        Insert: {
+          candidate_id: string
+          created_at?: string
+          overall: number
+          per_pillar?: Json
+          snapshot_date: string
+          streak_day?: number
+        }
+        Update: {
+          candidate_id?: string
+          created_at?: string
+          overall?: number
+          per_pillar?: Json
+          snapshot_date?: string
+          streak_day?: number
+        }
+        Relationships: []
+      }
+      career_fitness_daily_2026_09: {
+        Row: {
+          candidate_id: string
+          created_at: string
+          overall: number
+          per_pillar: Json
+          snapshot_date: string
+          streak_day: number
+        }
+        Insert: {
+          candidate_id: string
+          created_at?: string
+          overall: number
+          per_pillar?: Json
+          snapshot_date: string
+          streak_day?: number
+        }
+        Update: {
+          candidate_id?: string
+          created_at?: string
+          overall?: number
+          per_pillar?: Json
+          snapshot_date?: string
+          streak_day?: number
+        }
+        Relationships: []
+      }
+      career_fitness_daily_default: {
+        Row: {
+          candidate_id: string
+          created_at: string
+          overall: number
+          per_pillar: Json
+          snapshot_date: string
+          streak_day: number
+        }
+        Insert: {
+          candidate_id: string
+          created_at?: string
+          overall: number
+          per_pillar?: Json
+          snapshot_date: string
+          streak_day?: number
+        }
+        Update: {
+          candidate_id?: string
+          created_at?: string
+          overall?: number
+          per_pillar?: Json
+          snapshot_date?: string
+          streak_day?: number
+        }
+        Relationships: []
+      }
+      career_fitness_scores: {
+        Row: {
+          attempts_count: number
+          candidate_id: string
+          last_updated: string
+          pillar_id: string
+          score: number
+        }
+        Insert: {
+          attempts_count?: number
+          candidate_id: string
+          last_updated?: string
+          pillar_id: string
+          score?: number
+        }
+        Update: {
+          attempts_count?: number
+          candidate_id?: string
+          last_updated?: string
+          pillar_id?: string
+          score?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "career_fitness_scores_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "career_fitness_scores_pillar_id_fkey"
+            columns: ["pillar_id"]
+            isOneToOne: false
+            referencedRelation: "practice_pillars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       learning_paths_catalog: {
         Row: {
           created_at: string
@@ -956,6 +1157,351 @@ export type Database = {
             columns: ["provider_id"]
             isOneToOne: true
             referencedRelation: "llm_providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      practice_attempts: {
+        Row: {
+          ai_feedback: Json | null
+          answer: Json | null
+          candidate_id: string
+          created_at: string
+          id: string
+          is_correct: boolean | null
+          item_id: string | null
+          kind: string | null
+          latency_ms: number | null
+          pillar_id: string | null
+          score: number | null
+          subtopic_id: string | null
+          workout_id: string | null
+        }
+        Insert: {
+          ai_feedback?: Json | null
+          answer?: Json | null
+          candidate_id: string
+          created_at?: string
+          id?: string
+          is_correct?: boolean | null
+          item_id?: string | null
+          kind?: string | null
+          latency_ms?: number | null
+          pillar_id?: string | null
+          score?: number | null
+          subtopic_id?: string | null
+          workout_id?: string | null
+        }
+        Update: {
+          ai_feedback?: Json | null
+          answer?: Json | null
+          candidate_id?: string
+          created_at?: string
+          id?: string
+          is_correct?: boolean | null
+          item_id?: string | null
+          kind?: string | null
+          latency_ms?: number | null
+          pillar_id?: string | null
+          score?: number | null
+          subtopic_id?: string | null
+          workout_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practice_attempts_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "practice_attempts_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "practice_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "practice_attempts_pillar_id_fkey"
+            columns: ["pillar_id"]
+            isOneToOne: false
+            referencedRelation: "practice_pillars"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "practice_attempts_subtopic_id_fkey"
+            columns: ["subtopic_id"]
+            isOneToOne: false
+            referencedRelation: "practice_subtopics"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "practice_attempts_workout_id_fkey"
+            columns: ["workout_id"]
+            isOneToOne: false
+            referencedRelation: "practice_daily_workout"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      practice_daily_workout: {
+        Row: {
+          candidate_id: string
+          completed_at: string | null
+          created_at: string
+          id: string
+          slots: Json
+          status: string
+          total_xp: number
+          updated_at: string
+          workout_date: string
+        }
+        Insert: {
+          candidate_id: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          slots?: Json
+          status?: string
+          total_xp?: number
+          updated_at?: string
+          workout_date?: string
+        }
+        Update: {
+          candidate_id?: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          slots?: Json
+          status?: string
+          total_xp?: number
+          updated_at?: string
+          workout_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practice_daily_workout_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      practice_items: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          difficulty: string
+          id: string
+          kind: string
+          payload: Json
+          prompt_id: string | null
+          quality_score: number | null
+          source: string
+          status: string
+          stream_tag: string | null
+          subtopic_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          difficulty?: string
+          id?: string
+          kind?: string
+          payload: Json
+          prompt_id?: string | null
+          quality_score?: number | null
+          source?: string
+          status?: string
+          stream_tag?: string | null
+          subtopic_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          difficulty?: string
+          id?: string
+          kind?: string
+          payload?: Json
+          prompt_id?: string | null
+          quality_score?: number | null
+          source?: string
+          status?: string
+          stream_tag?: string | null
+          subtopic_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practice_items_prompt_id_fkey"
+            columns: ["prompt_id"]
+            isOneToOne: false
+            referencedRelation: "practice_prompts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "practice_items_subtopic_id_fkey"
+            columns: ["subtopic_id"]
+            isOneToOne: false
+            referencedRelation: "practice_subtopics"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      practice_pillars: {
+        Row: {
+          color: string | null
+          created_at: string
+          description: string | null
+          enabled: boolean
+          icon: string | null
+          id: string
+          is_stream_aware: boolean
+          name: string
+          slug: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          icon?: string | null
+          id?: string
+          is_stream_aware?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          icon?: string | null
+          id?: string
+          is_stream_aware?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      practice_prompts: {
+        Row: {
+          created_at: string
+          few_shot: Json
+          id: string
+          is_active: boolean
+          kind: string
+          model_override: string | null
+          notes: string | null
+          schema_json: Json | null
+          subtopic_id: string
+          system_prompt: string
+          temperature: number
+          updated_at: string
+          user_prompt_template: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          few_shot?: Json
+          id?: string
+          is_active?: boolean
+          kind: string
+          model_override?: string | null
+          notes?: string | null
+          schema_json?: Json | null
+          subtopic_id: string
+          system_prompt?: string
+          temperature?: number
+          updated_at?: string
+          user_prompt_template?: string
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          few_shot?: Json
+          id?: string
+          is_active?: boolean
+          kind?: string
+          model_override?: string | null
+          notes?: string | null
+          schema_json?: Json | null
+          subtopic_id?: string
+          system_prompt?: string
+          temperature?: number
+          updated_at?: string
+          user_prompt_template?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practice_prompts_subtopic_id_fkey"
+            columns: ["subtopic_id"]
+            isOneToOne: false
+            referencedRelation: "practice_subtopics"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      practice_subtopics: {
+        Row: {
+          created_at: string
+          default_difficulty: string
+          default_kind: string
+          description: string | null
+          enabled: boolean
+          id: string
+          name: string
+          pillar_id: string
+          slug: string
+          sort_order: number
+          time_budget_seconds: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          default_difficulty?: string
+          default_kind?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          name: string
+          pillar_id: string
+          slug: string
+          sort_order?: number
+          time_budget_seconds?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          default_difficulty?: string
+          default_kind?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          name?: string
+          pillar_id?: string
+          slug?: string
+          sort_order?: number
+          time_budget_seconds?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practice_subtopics_pillar_id_fkey"
+            columns: ["pillar_id"]
+            isOneToOne: false
+            referencedRelation: "practice_pillars"
             referencedColumns: ["id"]
           },
         ]

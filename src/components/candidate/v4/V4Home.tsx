@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Sparkles, GraduationCap, Trophy, Briefcase, ArrowRight, Flame, Target, Share2 } from 'lucide-react';
 import { ShareSheet } from './share/ShareSheet';
 import { WhatsAppOptInCard } from '@/components/candidate/WhatsAppOptInCard';
+import { FitnessScoreCard } from './practice/FitnessScoreCard';
 
 
 interface Props {
@@ -87,6 +88,8 @@ export function V4Home({ bootstrap, onNavigate }: Props) {
           </Button>
         )}
       </Card>
+
+      <FitnessScoreCard onOpenPractice={() => onNavigate('practice')} />
 
       {/* Quick actions */}
       <div className="grid grid-cols-2 gap-3">

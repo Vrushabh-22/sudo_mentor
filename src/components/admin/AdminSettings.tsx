@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { Cloud, Zap } from "lucide-react";
+import { Cloud, Zap, Dumbbell } from "lucide-react";
 import { LlmProviderSettings } from "./LlmProviderSettings";
 import { AzureStorageSettings } from "./AzureStorageSettings";
+import { PracticeContentSettings } from "./PracticeContentSettings";
 
-type Section = "llm" | "azure";
+type Section = "llm" | "azure" | "practice";
 
 const MENU: { id: Section; label: string; icon: React.ComponentType<{ className?: string }>; desc: string }[] = [
   { id: "llm", label: "LLM Providers", icon: Zap, desc: "Active provider & key pool" },
   { id: "azure", label: "Azure Storage", icon: Cloud, desc: "Account & container mappings" },
+  { id: "practice", label: "Practice Content", icon: Dumbbell, desc: "Pillars, prompts & item bank" },
 ];
 
 export function AdminSettings() {
@@ -45,6 +47,7 @@ export function AdminSettings() {
       <div className="min-w-0">
         {section === "llm" && <LlmProviderSettings />}
         {section === "azure" && <AzureStorageSettings />}
+        {section === "practice" && <PracticeContentSettings />}
       </div>
     </div>
   );
