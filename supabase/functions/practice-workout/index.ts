@@ -29,7 +29,11 @@ Deno.serve(async (req) => {
     const action = String(body.action || "");
 
     if (action === "get_today") {
-      return json(await getOrBuildToday(admin, authHeader, cand));
+      return json(await getOrBuildToday(admin, authHeader, cand, body.pillar_id || null));
+    }
+
+    if (action === "list_available_pillars") {
+      return json(await listAvailablePillars(admin, cand));
     }
 
     if (action === "submit_attempt") {
@@ -140,85 +144,75 @@ Deno.serve(async (req) => {
   }
 });
 
-async function getOrBuildToday(admin: any, authHeader: string, cand: any) {
+async function getOrBuildToday(admin: any, authHeader: string, cand: any, pillarIdFilter: string | null) {
   const today = new Date().toISOString().slice(0, 10);
 
-  const { data: existing } = await admin.from("practice_daily_workout")
-    .select("*").eq("candidate_id", cand.id).eq("workout_date", today).maybeSingle();
-  if (existing && existing.slots?.length) {
-    const hydrated = await hydrateSlots(admin, existing.slots);
-    return { ok: true, workout: existing, slots: hydrated };
+  // Reuse the day's cached workout only when no pillar filter is specified
+  if (!pillarIdFilter) {
+    const { data: existing } = await admin.from("practice_daily_workout")
+      .select("*").eq("candidate_id", cand.id).eq("workout_date", today).is("pillar_id", null).maybeSingle();
+    if (existing && existing.slots?.length) {
+      const hydrated = await hydrateSlots(admin, existing.slots);
+      return { ok: true, workout: existing, slots: hydrated };
+    }
   }
 
-  // Pick pillars: weakest 2 + staples + fill to WORKOUT_SIZE
   const { data: pillars } = await admin.from("practice_pillars")
     .select("id, slug, name, icon, color, is_stream_aware").eq("enabled", true).order("sort_order");
-  if (!pillars?.length) return { ok: false, error: "no pillars configured" };
+  if (!pillars?.length) return { ok: true, slots: [] };
 
-  const { data: scores } = await admin.from("career_fitness_scores")
-    .select("pillar_id, score").eq("candidate_id", cand.id);
-  const scoreMap = new Map((scores || []).map((s: any) => [s.pillar_id, Number(s.score)]));
-
-  const sorted = [...pillars].sort((a, b) => (scoreMap.get(a.id) ?? 0) - (scoreMap.get(b.id) ?? 0));
-  const picked: any[] = [];
-  const seen = new Set<string>();
-  // weakest 2
-  for (const p of sorted) { if (picked.length >= 2) break; picked.push(p); seen.add(p.id); }
-  // staples
-  for (const slug of STAPLE_SLUGS) {
-    const p = pillars.find((x: any) => x.slug === slug);
-    if (p && !seen.has(p.id) && picked.length < WORKOUT_SIZE) { picked.push(p); seen.add(p.id); }
-  }
-  // fill
-  for (const p of pillars) {
-    if (picked.length >= WORKOUT_SIZE) break;
-    if (!seen.has(p.id)) { picked.push(p); seen.add(p.id); }
+  let picked: any[] = [];
+  if (pillarIdFilter) {
+    const p = (pillars || []).find((x: any) => x.id === pillarIdFilter);
+    if (!p) return { ok: true, slots: [] };
+    // Build multiple slots from this single pillar (up to WORKOUT_SIZE subtopics)
+    picked = Array.from({ length: WORKOUT_SIZE }, () => p);
+  } else {
+    const { data: scores } = await admin.from("career_fitness_scores")
+      .select("pillar_id, score").eq("candidate_id", cand.id);
+    const scoreMap = new Map((scores || []).map((s: any) => [s.pillar_id, Number(s.score)]));
+    const sorted = [...pillars].sort((a, b) => (scoreMap.get(a.id) ?? 0) - (scoreMap.get(b.id) ?? 0));
+    const seen = new Set<string>();
+    for (const p of sorted) { if (picked.length >= 2) break; picked.push(p); seen.add(p.id); }
+    for (const slug of STAPLE_SLUGS) {
+      const p = pillars.find((x: any) => x.slug === slug);
+      if (p && !seen.has(p.id) && picked.length < WORKOUT_SIZE) { picked.push(p); seen.add(p.id); }
+    }
+    for (const p of pillars) {
+      if (picked.length >= WORKOUT_SIZE) break;
+      if (!seen.has(p.id)) { picked.push(p); seen.add(p.id); }
+    }
   }
 
   const slots: any[] = [];
+  const usedItemIds = new Set<string>();
+  const usedSubIds = new Set<string>();
+
   for (const p of picked) {
     const { data: subtopics } = await admin.from("practice_subtopics")
       .select("id, name, default_kind, time_budget_seconds").eq("pillar_id", p.id).eq("enabled", true).order("sort_order");
     if (!subtopics?.length) continue;
-    const sub = subtopics[Math.floor(Math.random() * subtopics.length)];
+
+    // Prefer unused subtopic in single-pillar mode; otherwise random
+    let sub: any;
+    if (pillarIdFilter) {
+      const remaining = subtopics.filter((s: any) => !usedSubIds.has(s.id));
+      sub = (remaining.length ? remaining : subtopics)[Math.floor(Math.random() * (remaining.length || subtopics.length))];
+    } else {
+      sub = subtopics[Math.floor(Math.random() * subtopics.length)];
+    }
 
     let itemsQ = admin.from("practice_items").select("id, kind, payload, stream_tag")
-      .eq("subtopic_id", sub.id).eq("status", "approved").limit(10);
+      .eq("subtopic_id", sub.id).eq("status", "approved").limit(20);
     if (p.is_stream_aware && cand.stream) itemsQ = itemsQ.or(`stream_tag.is.null,stream_tag.eq.${cand.stream}`);
     const { data: items } = await itemsQ;
 
-    let itemId: string | null = items?.length ? items[Math.floor(Math.random() * items.length)].id : null;
-
-    // If empty, try LLM generation on the fly (best-effort).
-    if (!itemId) {
-      const { data: prompt } = await admin.from("practice_prompts").select("*")
-        .eq("subtopic_id", sub.id).eq("is_active", true).limit(1).maybeSingle();
-      if (prompt) {
-        try {
-          const filled = String(prompt.user_prompt_template || "Generate one item.")
-            .replaceAll("{candidate_stream}", cand.stream || "general")
-            .replaceAll("{difficulty}", "medium");
-          const sysExtra = prompt.kind === "mcq"
-            ? `Return JSON: {"question":string,"options":string[4],"correct_index":0-3,"explanation":string}`
-            : `Return JSON: {"prompt":string,"rubric":string[]}`;
-          const payload = await callLLMJson<any>(authHeader, {
-            feature: `practice.live.${prompt.kind}`,
-            messages: [
-              { role: "system", content: (prompt.system_prompt || "") + "\n" + sysExtra },
-              { role: "user", content: filled },
-            ],
-            temperature: Number(prompt.temperature ?? 0.7),
-          });
-          const { data: ins } = await admin.from("practice_items").insert({
-            subtopic_id: sub.id, prompt_id: prompt.id, kind: prompt.kind,
-            payload, status: "approved", source: "llm",
-          }).select("id").single();
-          itemId = ins?.id || null;
-        } catch (_e) { /* skip slot if generation fails */ }
-      }
-    }
+    const pool = (items || []).filter((it: any) => !usedItemIds.has(it.id));
+    const itemId: string | null = pool.length ? pool[Math.floor(Math.random() * pool.length)].id : null;
 
     if (!itemId) continue;
+    usedItemIds.add(itemId);
+    usedSubIds.add(sub.id);
     slots.push({
       pillar_id: p.id, pillar_slug: p.slug, pillar_name: p.name, pillar_icon: p.icon, pillar_color: p.color,
       subtopic_id: sub.id, subtopic_name: sub.name,
@@ -227,14 +221,43 @@ async function getOrBuildToday(admin: any, authHeader: string, cand: any) {
     });
   }
 
-  if (!slots.length) return { ok: false, error: "No practice content available yet. Ask admin to add items." };
+  if (!slots.length) return { ok: true, slots: [] };
 
   const { data: workout } = await admin.from("practice_daily_workout").insert({
     candidate_id: cand.id, workout_date: today, slots, status: "in_progress",
+    pillar_id: pillarIdFilter,
   }).select("*").single();
 
   const hydrated = await hydrateSlots(admin, slots);
   return { ok: true, workout, slots: hydrated };
+}
+
+async function listAvailablePillars(admin: any, cand: any) {
+  const { data: pillars } = await admin.from("practice_pillars")
+    .select("id, slug, name, icon, color, is_stream_aware, sort_order")
+    .eq("enabled", true).order("sort_order");
+  if (!pillars?.length) return { ok: true, pillars: [], today_attempts: 0, daily_limit: 2 };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const { count: todayAttempts } = await admin.from("practice_daily_workout")
+    .select("id", { count: "exact", head: true })
+    .eq("candidate_id", cand.id).eq("workout_date", today);
+
+  // For each pillar, count approved items via its subtopics
+  const enriched: any[] = [];
+  for (const p of pillars) {
+    const { data: subs } = await admin.from("practice_subtopics")
+      .select("id").eq("pillar_id", p.id).eq("enabled", true);
+    const subIds = (subs || []).map((s: any) => s.id);
+    if (!subIds.length) continue;
+    const { count } = await admin.from("practice_items")
+      .select("id", { count: "exact", head: true })
+      .in("subtopic_id", subIds).eq("status", "approved");
+    if ((count || 0) > 0) {
+      enriched.push({ ...p, item_count: count || 0 });
+    }
+  }
+  return { ok: true, pillars: enriched, today_attempts: todayAttempts || 0, daily_limit: 2 };
 }
 
 async function hydrateSlots(admin: any, slots: any[]) {
