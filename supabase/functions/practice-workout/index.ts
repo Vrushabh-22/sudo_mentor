@@ -204,14 +204,24 @@ async function getOrBuildToday(admin: any, authHeader: string, cand: any, pillar
 
     const { data: itemsRaw, error: itemsErr } = await admin.from("practice_items")
       .select("id, kind, payload, stream_tag")
-      .eq("subtopic_id", sub.id).eq("status", "approved").limit(50);
+      .eq("subtopic_id", sub.id).eq("status", "approved").limit(200);
     if (itemsErr) console.error("[practice-workout] items query failed", { subtopic_id: sub.id, error: itemsErr });
-    const streamFiltered = (itemsRaw || []).filter((it: any) => {
-      if (!p.is_stream_aware) return true;
-      if (!cand.stream) return true;
-      return it.stream_tag == null || it.stream_tag === cand.stream;
-    });
-    const pool = streamFiltered.filter((it: any) => !usedItemIds.has(it.id));
+
+    // Best-effort stream filter: prefer stream-matching items, but fall back
+    // to all approved items if none match (data may be mis-tagged).
+    const all = (itemsRaw || []).filter((it: any) => !usedItemIds.has(it.id));
+    let pool = all;
+    if (p.is_stream_aware && cand.stream) {
+      const preferred = all.filter((it: any) => it.stream_tag == null || it.stream_tag === cand.stream);
+      if (preferred.length) {
+        pool = preferred;
+      } else if (all.length) {
+        console.warn("[practice-workout] no stream-matching items; falling back to all approved", {
+          subtopic_id: sub.id, candidate_stream: cand.stream, total: all.length,
+        });
+        pool = all;
+      }
+    }
     const itemId: string | null = pool.length ? pool[Math.floor(Math.random() * pool.length)].id : null;
 
     if (!itemId) continue;

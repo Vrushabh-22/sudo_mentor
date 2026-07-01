@@ -83,7 +83,12 @@ export function DailyWorkout({ bootstrap, onDone }: Props) {
     setStarting(true);
     const { data, error } = await practiceWorkout<{ ok: boolean; workout: any; slots: Slot[] }>({ action: "get_today", pillar_id: p.id });
     setStarting(false);
-    if (error || !data?.slots?.length) {
+    if (error) {
+      toast({ title: "Couldn't start workout", description: error.message, variant: "destructive" });
+      return;
+    }
+    if (!data?.slots?.length) {
+      console.warn("[DailyWorkout] empty slots for pillar", p, data);
       toast({ title: "No content for this workout yet", description: "Try another pillar or ask admin to add items.", variant: "destructive" });
       return;
     }
