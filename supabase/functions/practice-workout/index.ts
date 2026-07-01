@@ -147,36 +147,41 @@ Deno.serve(async (req) => {
 async function getOrBuildToday(admin: any, authHeader: string, cand: any, pillarIdFilter: string | null) {
   const today = new Date().toISOString().slice(0, 10);
 
-  const { data: existing } = await admin.from("practice_daily_workout")
-    .select("*").eq("candidate_id", cand.id).eq("workout_date", today).maybeSingle();
-  if (existing && existing.slots?.length) {
-    const hydrated = await hydrateSlots(admin, existing.slots);
-    return { ok: true, workout: existing, slots: hydrated };
+  // Reuse the day's cached workout only when no pillar filter is specified
+  if (!pillarIdFilter) {
+    const { data: existing } = await admin.from("practice_daily_workout")
+      .select("*").eq("candidate_id", cand.id).eq("workout_date", today).is("pillar_id", null).maybeSingle();
+    if (existing && existing.slots?.length) {
+      const hydrated = await hydrateSlots(admin, existing.slots);
+      return { ok: true, workout: existing, slots: hydrated };
+    }
   }
 
-  // Pick pillars: weakest 2 + staples + fill to WORKOUT_SIZE
   const { data: pillars } = await admin.from("practice_pillars")
     .select("id, slug, name, icon, color, is_stream_aware").eq("enabled", true).order("sort_order");
-  if (!pillars?.length) return { ok: false, error: "no pillars configured" };
+  if (!pillars?.length) return { ok: true, slots: [] };
 
-  const { data: scores } = await admin.from("career_fitness_scores")
-    .select("pillar_id, score").eq("candidate_id", cand.id);
-  const scoreMap = new Map((scores || []).map((s: any) => [s.pillar_id, Number(s.score)]));
-
-  const sorted = [...pillars].sort((a, b) => (scoreMap.get(a.id) ?? 0) - (scoreMap.get(b.id) ?? 0));
-  const picked: any[] = [];
-  const seen = new Set<string>();
-  // weakest 2
-  for (const p of sorted) { if (picked.length >= 2) break; picked.push(p); seen.add(p.id); }
-  // staples
-  for (const slug of STAPLE_SLUGS) {
-    const p = pillars.find((x: any) => x.slug === slug);
-    if (p && !seen.has(p.id) && picked.length < WORKOUT_SIZE) { picked.push(p); seen.add(p.id); }
-  }
-  // fill
-  for (const p of pillars) {
-    if (picked.length >= WORKOUT_SIZE) break;
-    if (!seen.has(p.id)) { picked.push(p); seen.add(p.id); }
+  let picked: any[] = [];
+  if (pillarIdFilter) {
+    const p = (pillars || []).find((x: any) => x.id === pillarIdFilter);
+    if (!p) return { ok: true, slots: [] };
+    // Build multiple slots from this single pillar (up to WORKOUT_SIZE subtopics)
+    picked = Array.from({ length: WORKOUT_SIZE }, () => p);
+  } else {
+    const { data: scores } = await admin.from("career_fitness_scores")
+      .select("pillar_id, score").eq("candidate_id", cand.id);
+    const scoreMap = new Map((scores || []).map((s: any) => [s.pillar_id, Number(s.score)]));
+    const sorted = [...pillars].sort((a, b) => (scoreMap.get(a.id) ?? 0) - (scoreMap.get(b.id) ?? 0));
+    const seen = new Set<string>();
+    for (const p of sorted) { if (picked.length >= 2) break; picked.push(p); seen.add(p.id); }
+    for (const slug of STAPLE_SLUGS) {
+      const p = pillars.find((x: any) => x.slug === slug);
+      if (p && !seen.has(p.id) && picked.length < WORKOUT_SIZE) { picked.push(p); seen.add(p.id); }
+    }
+    for (const p of pillars) {
+      if (picked.length >= WORKOUT_SIZE) break;
+      if (!seen.has(p.id)) { picked.push(p); seen.add(p.id); }
+    }
   }
 
   const slots: any[] = [];
