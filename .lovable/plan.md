@@ -1,49 +1,32 @@
+## Problem
 
-## Goal
+Clicking the **Aptitude** workout tile shows "No content for this workout yet", even though the pillar has 20 approved items.
 
-Collapse the Practice hub to a single **Workout** experience. Reuse the colorful pillar-card design from the current Daily Quiz, but drive it from the real admin-managed practice content (pillars → subtopics → approved items). Kill the "Could not load workout / No practice content" error state by only showing pillars that actually have approved items.
+Root cause found in `supabase/functions/practice-workout/index.ts`:
 
-## Changes
+```ts
+if (p.is_stream_aware && cand.stream)
+  itemsQ = itemsQ.or(`stream_tag.is.null,stream_tag.eq.${cand.stream}`);
+```
 
-### 1. `PracticeHub.tsx` — remove tab switcher
-- Delete the `workout / quiz / paths` pill toggle.
-- Header stays ("Practice · Daily reps to stay career-fit").
-- Render two sections stacked:
-  1. `DailyWorkout` (redesigned, see #2)
-  2. `MyLearningPaths` in a collapsed "Learning Paths" section below (kept, since it's independent content).
-- Remove all `DEFAULT_DOMAINS`, `start()`, `submit()`, `running`, `result`, `answers` legacy quiz state and JSX. All quiz-run flow now lives inside the workout.
+But `Aptitude` has `is_stream_aware = true`, and if `cand.stream` is set, all approved items were uploaded with `stream_tag = null` (via Excel default). The OR filter still returns them — so that's not the miss. The actual issue: when the candidate's `stream` is set, the `.or(...)` string is fine, but when only one subtopic ("Quantitative") holds the 20 items and the loop iterates WORKOUT_SIZE=5 times over the same pillar, the second-through-fifth iterations exhaust items (only 20 unique, but we mark `usedItemIds`) — that still gives ≥1 slot. So why zero?
 
-### 2. `DailyWorkout.tsx` — new pillar-card landing design
-Replace the current plain list with the Daily Quiz visual language, but data-driven:
+The failing case is subtler: `usedSubIds` is populated after the first successful slot, and the pillar has **only one subtopic**. Line 199 filters `subtopics` to those not yet used → empty array → `remaining.length || subtopics.length` picks the full list again, so `sub` is fine. Items pool then filters out `usedItemIds` — 19 remain → still ok.
 
-**Data source**: call `practice-workout` with a new action `list_available_pillars` which returns pillars that have ≥1 approved item, with:
-- `pillar_id, slug, name, icon, color_gradient`
-- `available_kinds` (mcq/scenario/…)
-- `item_count`
-- `today_attempts` for this pillar, `daily_limit` (2 attempts/day total, same as before)
+The real blocker: the `.or()` PostgREST filter breaks when `cand.stream` contains characters PostgREST treats specially (commas, spaces) or when the OR string is unquoted for a text value. For streams like `"Computer Science"` the space aborts the filter and Supabase returns an error → items query returns `null` → `pool` is empty → slot skipped 5 times → 0 slots → empty state.
 
-**Landing view (no workout running)**:
-- Top hero card: orange→rose gradient, "Today's Career Workout · Stay match-fit. Daily reps build the score recruiters see." with total attempts left today (e.g. `2/2 LEFT TODAY`).
-- Grid of pillar cards using the exact styling from the old `DEFAULT_DOMAINS` grid (rounded-2xl, `bg-gradient-to-br`, emoji, name, "N questions · 5–10 min"). Colors come from `pillar.color_gradient` stored in `practice_pillars` (fallback palette in the component if null).
-- If no pillars have content → single friendly empty card ("New workouts arrive soon — your admin is loading them up"), not a red toast.
-- "Why workouts?" one-liner under the grid explaining the daily habit → confidence → interview readiness angle.
+## Fix
 
-**Running view (tap a pillar)**:
-- Call existing `get_today` but scoped to the chosen `pillar_id` (add `pillar_id` param). Backend assembles a workout using only that pillar's approved items and subtopics.
-- Keep the current per-slot MCQ / open-answer rendering, progress bar, submit → feedback → next flow.
-- Finish screen keeps the trophy + XP + "Career Fitness updated" card.
+In `supabase/functions/practice-workout/index.ts` inside `getOrBuildToday`:
 
-### 3. `practice-workout` edge function
-- Add `list_available_pillars` action: joins `practice_pillars` ↔ `practice_subtopics` ↔ `practice_items` where `status='approved'`, groups by pillar, returns non-empty pillars only, plus `today_attempts` / `daily_limit` for the caller.
-- Extend `get_today` to accept optional `pillar_id`; when passed, restrict slot selection to that pillar (all 3–5 slots pulled from its subtopics, weakest-first). Existing multi-pillar behavior kept as fallback when no `pillar_id`.
-- On empty content for the requested pillar, return `{ ok: true, slots: [] }` so UI shows the friendly empty state instead of a toast error.
+1. Replace the fragile `.or(...)` chain with an explicit `.in("stream_tag", [null, cand.stream])`-equivalent using two queries or a properly-quoted `.or()` value.
+2. When `cand.stream` is missing/blank, do **not** apply the stream filter at all (just return items regardless of `stream_tag`).
+3. Safer: fetch items with the base filter, then filter in JS by `stream_tag === null || stream_tag === cand.stream`.
 
-### 4. Cleanup
-- Remove Daily Quiz–only imports/UI from `PracticeHub.tsx`.
-- Keep `ShareSheet` win-share reachable from the workout finish screen (port the "Share win" button that Daily Quiz had).
-- No DB migration needed; `color_gradient` already exists on `practice_pillars` (used by `DailyWorkout` slot list today).
+Also add a small `console.error` when the items query returns an error so this class of bug is visible in edge logs next time.
 
-## Out of scope
-- No changes to admin Practice Content screens.
-- No change to XP formula or `career_fitness_daily` scoring.
-- Learning Paths tab content untouched, just relocated below the workout.
+No DB changes, no UI changes.
+
+## Files touched
+
+- `supabase/functions/practice-workout/index.ts` — swap the stream filter for a JS-side filter and log errors from the items query.
