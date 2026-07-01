@@ -202,12 +202,16 @@ async function getOrBuildToday(admin: any, authHeader: string, cand: any, pillar
       sub = subtopics[Math.floor(Math.random() * subtopics.length)];
     }
 
-    let itemsQ = admin.from("practice_items").select("id, kind, payload, stream_tag")
-      .eq("subtopic_id", sub.id).eq("status", "approved").limit(20);
-    if (p.is_stream_aware && cand.stream) itemsQ = itemsQ.or(`stream_tag.is.null,stream_tag.eq.${cand.stream}`);
-    const { data: items } = await itemsQ;
-
-    const pool = (items || []).filter((it: any) => !usedItemIds.has(it.id));
+    const { data: itemsRaw, error: itemsErr } = await admin.from("practice_items")
+      .select("id, kind, payload, stream_tag")
+      .eq("subtopic_id", sub.id).eq("status", "approved").limit(50);
+    if (itemsErr) console.error("[practice-workout] items query failed", { subtopic_id: sub.id, error: itemsErr });
+    const streamFiltered = (itemsRaw || []).filter((it: any) => {
+      if (!p.is_stream_aware) return true;
+      if (!cand.stream) return true;
+      return it.stream_tag == null || it.stream_tag === cand.stream;
+    });
+    const pool = streamFiltered.filter((it: any) => !usedItemIds.has(it.id));
     const itemId: string | null = pool.length ? pool[Math.floor(Math.random() * pool.length)].id : null;
 
     if (!itemId) continue;
