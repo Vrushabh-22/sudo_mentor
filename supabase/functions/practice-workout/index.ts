@@ -29,7 +29,11 @@ Deno.serve(async (req) => {
     const action = String(body.action || "");
 
     if (action === "get_today") {
-      return json(await getOrBuildToday(admin, authHeader, cand));
+      return json(await getOrBuildToday(admin, authHeader, cand, body.pillar_id || null));
+    }
+
+    if (action === "list_available_pillars") {
+      return json(await listAvailablePillars(admin, cand));
     }
 
     if (action === "submit_attempt") {
