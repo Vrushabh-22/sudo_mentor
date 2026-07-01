@@ -1,32 +1,43 @@
-## Problem
+## Root cause (verified with DB)
 
-Clicking the **Aptitude** workout tile shows "No content for this workout yet", even though the pillar has 20 approved items.
+Aptitude has 20 approved items but the workout returns 0 slots. All 20 items were uploaded with `stream_tag` set to *topic labels* — `HCF`, `Algebra`, `Ratio`, `Average`, `Percentages`, `Profit & Loss`, `Time & Work`, `Probability`, etc. Meanwhile:
 
-Root cause found in `supabase/functions/practice-workout/index.ts`:
+- `practice_pillars.aptitude.is_stream_aware = true`
+- The signed-in candidate (`akshay.deshmukh@techademy.com`) has `stream = "CSE"`
 
-```ts
-if (p.is_stream_aware && cand.stream)
-  itemsQ = itemsQ.or(`stream_tag.is.null,stream_tag.eq.${cand.stream}`);
-```
+The current JS filter in `practice-workout` keeps only items where `stream_tag == null || stream_tag == "CSE"`. None of the 20 items match either → empty pool → 0 slots → "No content for this workout yet" toast.
 
-But `Aptitude` has `is_stream_aware = true`, and if `cand.stream` is set, all approved items were uploaded with `stream_tag = null` (via Excel default). The OR filter still returns them — so that's not the miss. The actual issue: when the candidate's `stream` is set, the `.or(...)` string is fine, but when only one subtopic ("Quantitative") holds the 20 items and the loop iterates WORKOUT_SIZE=5 times over the same pillar, the second-through-fifth iterations exhaust items (only 20 unique, but we mark `usedItemIds`) — that still gives ≥1 slot. So why zero?
-
-The failing case is subtler: `usedSubIds` is populated after the first successful slot, and the pillar has **only one subtopic**. Line 199 filters `subtopics` to those not yet used → empty array → `remaining.length || subtopics.length` picks the full list again, so `sub` is fine. Items pool then filters out `usedItemIds` — 19 remain → still ok.
-
-The real blocker: the `.or()` PostgREST filter breaks when `cand.stream` contains characters PostgREST treats specially (commas, spaces) or when the OR string is unquoted for a text value. For streams like `"Computer Science"` the space aborts the filter and Supabase returns an error → items query returns `null` → `pool` is empty → slot skipped 5 times → 0 slots → empty state.
+So this is a data-shape mismatch (Excel row was tagged with a topic name in the `StreamTag` column), not a code bug in the sense of the earlier `.or()` failure — but the workout builder should not go silent on it.
 
 ## Fix
 
-In `supabase/functions/practice-workout/index.ts` inside `getOrBuildToday`:
+Two small changes, no DB migration needed.
 
-1. Replace the fragile `.or(...)` chain with an explicit `.in("stream_tag", [null, cand.stream])`-equivalent using two queries or a properly-quoted `.or()` value.
-2. When `cand.stream` is missing/blank, do **not** apply the stream filter at all (just return items regardless of `stream_tag`).
-3. Safer: fetch items with the base filter, then filter in JS by `stream_tag === null || stream_tag === cand.stream`.
+### 1. Make stream filter best-effort in `supabase/functions/practice-workout/index.ts`
 
-Also add a small `console.error` when the items query returns an error so this class of bug is visible in edge logs next time.
+Inside `getOrBuildToday`, replace the "hard drop when stream doesn't match" behaviour with:
 
-No DB changes, no UI changes.
+- Fetch all approved items for the subtopic.
+- If pillar is stream-aware AND candidate has a stream, split the pool into `preferred` (stream matches or is null) and `fallback` (everything else).
+- Pick from `preferred` first; only if `preferred` after `usedItemIds` filter is empty, fall back to `fallback`.
+- Add a `console.warn` when we had to fall back so admins can spot mis-tagged banks.
+
+This keeps stream-awareness working when data is correctly tagged, and prevents the "silently empty" failure when it isn't.
+
+### 2. Friendlier + more diagnostic UI in `src/components/candidate/v4/practice/DailyWorkout.tsx`
+
+`startPillar` currently shows the same red toast for both "empty slots" and "error returned". Split it:
+
+- If `error`: show the actual error message.
+- If `!error && !slots.length`: keep the friendly toast, but also `console.warn` the response so we can diagnose next time from the browser console.
+
+No other UI changes.
 
 ## Files touched
 
-- `supabase/functions/practice-workout/index.ts` — swap the stream filter for a JS-side filter and log errors from the items query.
+- `supabase/functions/practice-workout/index.ts` — best-effort stream filter + warn log
+- `src/components/candidate/v4/practice/DailyWorkout.tsx` — split error vs empty toasts + console.warn
+
+## Optional cleanup (not doing unless you confirm)
+
+The 20 Aptitude rows have topic names sitting in `stream_tag`. Once the code fix above is in, they'll be served correctly. If you want, we can also run a one-line SQL to `UPDATE practice_items SET stream_tag = NULL WHERE stream_tag NOT IN (<real streams>)` — but that's a data change, so I'll wait for your go-ahead.
