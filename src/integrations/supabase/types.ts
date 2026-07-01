@@ -1251,6 +1251,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           id: string
+          pillar_id: string | null
           slots: Json
           status: string
           total_xp: number
@@ -1262,6 +1263,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           id?: string
+          pillar_id?: string | null
           slots?: Json
           status?: string
           total_xp?: number
@@ -1273,6 +1275,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           id?: string
+          pillar_id?: string | null
           slots?: Json
           status?: string
           total_xp?: number
@@ -1285,6 +1288,13 @@ export type Database = {
             columns: ["candidate_id"]
             isOneToOne: false
             referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "practice_daily_workout_pillar_id_fkey"
+            columns: ["pillar_id"]
+            isOneToOne: false
+            referencedRelation: "practice_pillars"
             referencedColumns: ["id"]
           },
         ]
