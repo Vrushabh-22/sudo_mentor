@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
   }
 });
 
-async function getOrBuildToday(admin: any, authHeader: string, cand: any) {
+async function getOrBuildToday(admin: any, authHeader: string, cand: any, pillarIdFilter: string | null) {
   const today = new Date().toISOString().slice(0, 10);
 
   const { data: existing } = await admin.from("practice_daily_workout")
