@@ -110,10 +110,12 @@ Deno.serve(async (req) => {
     if (items.length === 0 && q.length >= 4) {
       const llm = await llmSuggest(q);
       if (llm.length) {
-        const { data: upserted } = await admin
-          .from("institutes")
-          .upsert(
-            llm.map((i) => ({
+        // Best-effort insert; unique index on (lower(name), country) will reject dupes.
+        // Insert one-by-one so a single dupe doesn't drop the whole batch.
+        for (const i of llm) {
+          const { data: ins } = await admin
+            .from("institutes")
+            .insert({
               name: i.name,
               city: i.city,
               state: i.state,
@@ -121,19 +123,15 @@ Deno.serve(async (req) => {
               type: i.type,
               source: "llm",
               verified: false,
-            })),
-            { onConflict: "lower(name),country", ignoreDuplicates: false }
-          )
-          .select("id,name,city,state,country,type");
-        for (const r of upserted ?? []) {
-          items.push({ ...(r as any), suggested: true });
-        }
-        // Fallback: if upsert returned nothing (older PG conflict target syntax), still surface LLM results.
-        if (!upserted || upserted.length === 0) {
-          for (const i of llm) items.push({ ...i, suggested: true });
+            })
+            .select("id,name,city,state,country,type")
+            .maybeSingle();
+          if (ins) items.push({ ...(ins as any), suggested: true });
+          else items.push({ ...i, suggested: true });
         }
       }
     }
+
 
     return new Response(JSON.stringify({ items }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
