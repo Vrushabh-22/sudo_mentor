@@ -165,6 +165,36 @@ export default function CandidateAuth() {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
+  const signupSchema = z.object({
+    email: z.string().trim().email("Please enter a valid email").max(255),
+    password: z.string().min(8, "Password must be at least 8 characters").max(72),
+    confirm: z.string(),
+  }).refine((d) => d.password === d.confirm, { message: "Passwords do not match", path: ["confirm"] });
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = signupSchema.safeParse(signupData);
+    if (!parsed.success) {
+      toast({ title: "Check your details", description: parsed.error.errors[0].message, variant: "destructive" });
+      return;
+    }
+    setIsSigningUp(true);
+    const { error, needsConfirmation } = await signUp(parsed.data.email, parsed.data.password);
+    setIsSigningUp(false);
+    if (!error) {
+      if (needsConfirmation) {
+        setSignupSuccess(true);
+      } else {
+        toast({ title: "Account created!", description: "Welcome aboard." });
+        window.location.href = "/portal";
+      }
+    }
+  };
+
+  const handleSignupChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSignupData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
   return (
     <div className="min-h-screen bg-white font-sans text-slate-900 lg:grid lg:grid-cols-[1.1fr,0.9fr]">
       {/* BRAND PANEL */}
