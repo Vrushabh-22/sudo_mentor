@@ -1,87 +1,97 @@
 
-# On-device LLM via React Native WebView bridge
+# Institute autocomplete for the profile setup
 
-Your native app already wraps `sudomentor.com` in a `WebView`. We can add a bridge so the web app, when it detects it's running inside the shell, hands mentor prompts to the RN side, which runs them against a locally hosted model and returns the reply. Cloud (`llm-caller`) stays the fallback.
+Replace the free-text "College name" input in `ProfileFormCard` with a typeahead that suggests real institute names. Use a **hybrid** source: a database table of known institutes (fast, deterministic, cheap) with an **LLM fallback** for queries that don't match — accepted picks are written back to the table so the list grows over time.
 
-## How the bridge works
+Pure-LLM on every keystroke would be slow, expensive, and prone to hallucinated colleges. Pure static list would miss long-tail institutes. Hybrid gives us both.
+
+## Data flow
 
 ```text
-Web (React)                    WebView bridge                     React Native
-────────────                   ──────────────                    ──────────────
-callLLM({messages})   ──►  window.ReactNativeWebView             onMessage(evt)
-                              .postMessage(JSON)         ──►     runs local model
-                                                                 (llama.rn / MLC / Ollama)
-window.__RN_LLM__.resolve(id, text)  ◄──  webViewRef.injectJavaScript(...)
+User types "iit b"
+   │
+   ▼
+Debounce 250ms → edge function `institute-search?q=iit b`
+   │
+   ├─ pg_trgm search on public.institutes  → 8 matches → return
+   │
+   └─ if 0 matches AND q.length ≥ 4:
+         call Lovable AI (google/gemini-3-flash-preview) with a strict
+         JSON schema asking for up to 5 real institutes matching q
+         → validate → upsert into public.institutes with source='llm', verified=false
+         → return them tagged {suggested:true}
 ```
 
-- Web posts a request with a correlation `id`.
-- RN receives it in `onMessage`, runs the model, and injects a JS call back into the WebView with the answer for that `id`.
-- Web resolves the pending promise.
+On the client, show DB matches first, then a divider "Suggested — tap to add", then LLM suggestions. Selecting a suggested one flips `verified=true`. If nothing fits, an "Add my institute" row lets the user submit exactly what they typed (stored `verified=false, source='user'`).
 
-## Changes in the web app (this repo)
+## Database (new migration)
 
-1. **New `src/lib/nativeLLMBridge.ts`**
-   - `isInNativeApp()` — true when `window.ReactNativeWebView` exists (or a UA marker we set from RN).
-   - `callNativeLLM({ messages, feature, model?, temperature?, max_tokens? }, timeoutMs)` — creates a `id`, stores a `{resolve, reject}` in a map, posts `{ type: "llm.request", id, payload }` to RN, times out (e.g. 45s) with rejection.
-   - Installs `window.__RN_LLM__ = { resolve(id, text), reject(id, err), capabilities(caps) }` once, so RN can push results and advertise which models it supports.
+```sql
+CREATE TABLE public.institutes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  aliases text[] NOT NULL DEFAULT '{}',
+  city text,
+  state text,
+  country text NOT NULL DEFAULT 'India',
+  type text,                   -- 'university' | 'college' | 'iit' | 'nit' | 'iiit' | ...
+  source text NOT NULL DEFAULT 'seed', -- 'seed' | 'llm' | 'user'
+  verified boolean NOT NULL DEFAULT false,
+  usage_count integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX institutes_name_country_key ON public.institutes (lower(name), country);
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX institutes_name_trgm ON public.institutes USING gin (name gin_trgm_ops);
+CREATE INDEX institutes_aliases_gin ON public.institutes USING gin (aliases);
 
-2. **`src/lib/llmClient.ts`** — inside `callLLM` / `callLLMJson`:
-   - If `isInNativeApp()` and (a) feature is in an allowlist and (b) RN has advertised capability → `callNativeLLM(...)`.
-   - On any error/timeout → fall through to the existing `supabase.functions.invoke("llm-caller", ...)`.
-   - Streaming (`streamLLM`) stays cloud-only in v1 (bridging SSE is more work).
+GRANT SELECT ON public.institutes TO authenticated;
+GRANT ALL ON public.institutes TO service_role;
 
-3. **`supabase/functions/_shared/llmCallerClient.ts`** — no change. Server-side callers (`mentor-copilot-chat`, `mentor-learning-path`, etc.) keep using cloud, because those run in edge functions where the device isn't reachable.
+ALTER TABLE public.institutes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "read institutes" ON public.institutes FOR SELECT TO authenticated USING (true);
+-- writes only via edge function (service role bypasses RLS)
+```
 
-   Implication: to route Project Mentor to the device, the client must call the model directly through `llmClient` instead of going through `mentor-copilot-chat`. Two options:
-   - **A.** Add a thin "compose messages on the client" path used only when `isInNativeApp()` — keeps server prompt/tools intact for the web.
-   - **B.** Have `mentor-copilot-chat` return a `messages[]` "plan" that the client executes locally (via bridge) and then posts back for persistence.
-   
-   Recommend **A** for v1 (simpler); B later if we want server-defined prompts.
+Seed with a curated CSV of ~200 top Indian institutes (IITs, NITs, IIITs, top private universities) so day-one UX is decent — no need to bulk-load AICTE's full list.
 
-4. **Feature flag / allowlist**
-   - Start with `feature === "project_mentor_chat"` only. Add others (`learning_path_suggestions`, mock interview turn) after we validate quality/latency.
+## Edge function `institute-search`
 
-5. **UX affordances**
-   - Small "On-device" pill in `V4ProjectMentorChat` header when bridge is active.
-   - Error toast on bridge timeout, then transparent cloud fallback.
+- `GET /institute-search?q=<text>&limit=8`
+- JWT-guarded (verify token; only issued to logged-in candidates).
+- Query pg_trgm on `name` + array match on `aliases`, ordered by `similarity DESC, usage_count DESC`.
+- If 0 rows and `q.length >= 4`, call Lovable AI with structured output:
+  ```
+  { institutes: [{ name, city?, state?, country?, type? }] }
+  ```
+  Prompt: "Return up to 5 real, currently-operating higher-education institutes matching the query. If uncertain, return fewer."
+- Upsert results (`source='llm'`, `verified=false`) via service role. Return combined list with a `suggested` flag.
+- On any successful profile save that includes an institute, increment `usage_count` (separate edge action or DB trigger).
 
-## Changes in the React Native app (separate repo)
+Rate-limit LLM branch: max 20 LLM calls / user / hour (in-memory `Map` keyed by `user_id` with a rolling window is enough for v1).
 
-You'll add these to the file you pasted:
+## Web changes
 
-1. **Bridge script injected into WebView** (`injectedJavaScriptBeforeContentLoaded`):
-   - Sets a UA/global marker: `window.__IS_SUDOMENTOR_NATIVE__ = true`.
-   - Declares `window.__RN_LLM__` stub (real one is created by the web bundle; this is only a fallback).
+### `src/components/candidate/v4/chat/InstituteAutocomplete.tsx` (new)
+- Controlled component `{ value, onChange(name, id?) }`.
+- Uses shadcn `Command` + `Popover` (already in project) for the dropdown.
+- Debounced fetch (250ms) via `supabase.functions.invoke('institute-search', { body: { q } })`.
+- States: loading, results (with `suggested` divider), empty → "Add \"<q>\"" row.
+- Keyboard nav (↑/↓/Enter), shows city/state as secondary text.
 
-2. **`onMessage` handler** parses `{ type, id, payload }`:
-   - `"llm.request"` → run the local model, then `webViewRef.current.injectJavaScript(\`window.__RN_LLM__.resolve(${JSON.stringify(id)}, ${JSON.stringify(text)});true;\`)`.
-   - `"llm.capabilities?"` → reply with the list of supported models/features.
+### `src/components/candidate/v4/chat/ProfileFormCard.tsx`
+Swap the plain `Input` at line 76 for `<InstituteAutocomplete value={vals.institution || ''} onChange={(v) => set('institution', v)} />`. No other changes.
 
-3. **Local model runtime — pick one**
-   - **`llama.rn`** (llama.cpp bindings for RN) — ship a GGUF (e.g. Llama 3.2 3B Instruct Q4). Best offline story, ~2GB model download on first launch.
-   - **MLC LLM** — good perf on iOS/Android GPUs, more setup.
-   - **Local HTTP (Ollama / LM Studio on the same LAN)** — no on-device weights, but only works over Wi‑Fi.
-   
-   For a phone-hosted mentor, `llama.rn` is the pragmatic default.
+### Optional: also swap the same field on `CandidateAuth` signup if the institute question appears there — I didn't find it, so out of scope unless you point me at it.
 
-4. **Model lifecycle**
-   - First-run downloader with progress UI (weights are big).
-   - Warm the context on app start; keep a single session in memory.
-   - Cap `max_tokens`, add a timeout, surface OOM as a bridge error so web falls back.
+## Cost / UX notes
 
-5. **Permissions / entitlements**
-   - iOS: increased memory entitlement for large models on supported devices.
-   - Android: `largeHeap="true"`, storage for model files.
+- DB hit is < 30 ms and free. Only unseen queries reach the LLM.
+- One LLM call ~ 200 output tokens on `google/gemini-3-flash-preview` — fractions of a cent.
+- No autocomplete-on-every-keystroke to LLM — DB is always tried first.
+- Suggestions get written back, so popular missing institutes stop hitting the LLM after the first user finds them.
 
-## Rollout plan
-
-1. Land bridge + `isInNativeApp` gating in the web app behind a flag (`localStorage.sudomentor.useOnDeviceLLM`).
-2. Ship RN build with `llama.rn` + a small model (1B–3B) and the `onMessage` handler.
-3. Enable for Project Mentor chat only; measure latency, quality, crash rate.
-4. Expand to learning-path suggestions once stable. Keep streaming and mock interview on cloud until we bridge SSE.
-
-## Open questions before build
-
-- Which local runtime do you want to commit to (`llama.rn`, MLC, or LAN Ollama)?
-- Target model + size (affects download UX and which surfaces are usable on-device)?
-- OK to keep streaming + server-authored system prompts on cloud in v1?
+## Out of scope
+- Bulk import of AICTE/UGC master list (can be a follow-up migration once we know we need it).
+- Admin UI to verify `source='llm'/'user'` rows.
+- Global (non-India) coverage beyond what the LLM returns opportunistically.
