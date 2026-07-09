@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { invokeV4 } from '@/lib/candidatePortalV4Client';
 import { Loader2, CheckCircle2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { InstituteAutocomplete } from './InstituteAutocomplete';
 
 const STREAMS = ['CSE', 'IT', 'ECE', 'EEE', 'Mech', 'Civil', 'MBA', 'BBA', 'B.Sc', 'M.Sc', 'BCA', 'MCA', 'Other'];
 
@@ -73,7 +74,7 @@ export function ProfileFormCard({ fields, initial: _initial, onSubmitted }: Prop
       {fields.includes('institution') && (
         <div>
           <Label className="text-xs">Institution</Label>
-          <Input className="h-9 text-sm" placeholder="College name" value={vals.institution || ''} onChange={(e) => set('institution', e.target.value)} />
+          <InstituteAutocomplete value={vals.institution || ''} onChange={(v) => set('institution', v)} placeholder="Start typing your college…" />
         </div>
       )}
       {fields.includes('graduation_year') && (
