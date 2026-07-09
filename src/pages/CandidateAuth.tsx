@@ -6,7 +6,7 @@ import { useCandidateAuth } from "@/hooks/useCandidateAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, ArrowLeft, Brain, Code2, Trophy, Sparkles, MailCheck } from "lucide-react";
+import { Loader2, ArrowLeft, Brain, Code2, Trophy, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { callAutoLoginCandidate } from "@/utils/autoLoginCandidate";
 import { useToast } from "@/hooks/use-toast";
@@ -44,7 +44,7 @@ export default function CandidateAuth() {
     password: "",
   });
   const [signupData, setSignupData] = useState({ email: "", password: "", confirm: "" });
-  const [signupSuccess, setSignupSuccess] = useState(false);
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSigningUp, setIsSigningUp] = useState(false);
   const [isAutoLoggingIn, setIsAutoLoggingIn] = useState(false);
@@ -172,6 +172,28 @@ export default function CandidateAuth() {
     confirm: z.string(),
   }).refine((d) => d.password === d.confirm, { message: "Passwords do not match", path: ["confirm"] });
 
+  const RATE_KEY = "sudomentor.signup.attempts";
+  const RATE_MAX = 3;
+  const RATE_WINDOW_MS = 10 * 60 * 1000;
+
+  const readAttempts = (): number[] => {
+    try {
+      const raw = localStorage.getItem(RATE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      const arr: number[] = Array.isArray(parsed?.timestamps) ? parsed.timestamps : [];
+      const cutoff = Date.now() - RATE_WINDOW_MS;
+      return arr.filter((t) => typeof t === "number" && t > cutoff);
+    } catch {
+      return [];
+    }
+  };
+
+  const recordAttempt = () => {
+    const next = [...readAttempts(), Date.now()];
+    try { localStorage.setItem(RATE_KEY, JSON.stringify({ timestamps: next })); } catch {}
+  };
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = signupSchema.safeParse(signupData);
@@ -179,7 +201,19 @@ export default function CandidateAuth() {
       toast({ title: "Check your details", description: parsed.error.errors[0].message, variant: "destructive" });
       return;
     }
+    const attempts = readAttempts();
+    if (attempts.length >= RATE_MAX) {
+      const waitMs = attempts[0] + RATE_WINDOW_MS - Date.now();
+      const mins = Math.max(1, Math.ceil(waitMs / 60000));
+      toast({
+        title: "Too many sign-up attempts",
+        description: `Please try again in ~${mins} minute${mins === 1 ? "" : "s"}.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setIsSigningUp(true);
+    recordAttempt();
     const { error, needsConfirmation, alreadyRegistered } = await signUp(parsed.data.email, parsed.data.password);
     setIsSigningUp(false);
     if (error) return;
@@ -195,11 +229,16 @@ export default function CandidateAuth() {
       return;
     }
     if (needsConfirmation) {
-      setSignupSuccess(true);
-    } else {
-      toast({ title: "Account created!", description: "Welcome aboard." });
-      window.location.href = "/portal";
+      // Confirm-email is still enabled in Supabase. Nudge the user to check inbox.
+      toast({
+        title: "Check your email",
+        description: "We sent a confirmation link. Once confirmed, sign in below.",
+      });
+      setActiveTab("signin");
+      setFormData((prev) => ({ ...prev, email: parsed.data.email }));
+      setSignupData({ email: "", password: "", confirm: "" });
     }
+    // On success signIn is already established by the hook — auth state routes to /portal.
   };
 
   const handleSignupChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -373,38 +412,29 @@ export default function CandidateAuth() {
             </TabsContent>
 
             <TabsContent value="signup" className="mt-5">
-              {signupSuccess ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-center">
-                  <MailCheck className="mx-auto h-8 w-8 text-emerald-600" />
-                  <h3 className="mt-3 font-semibold text-slate-900">Check your inbox</h3>
-                  <p className="mt-1 text-sm text-slate-600">
-                    We've sent a confirmation link to <strong>{signupData.email}</strong>. Click it to activate your account.
-                  </p>
+              <form onSubmit={handleSignup} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="signup-email" className="text-xs font-semibold text-slate-600">Email</Label>
+                  <Input id="signup-email" name="email" type="email" value={signupData.email} onChange={handleSignupChange} placeholder="you@college.edu" required />
                 </div>
-              ) : (
-                <form onSubmit={handleSignup} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="signup-email" className="text-xs font-semibold text-slate-600">Email</Label>
-                    <Input id="signup-email" name="email" type="email" value={signupData.email} onChange={handleSignupChange} placeholder="you@college.edu" required />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="signup-password" className="text-xs font-semibold text-slate-600">Password</Label>
-                    <Input id="signup-password" name="password" type="password" value={signupData.password} onChange={handleSignupChange} placeholder="At least 8 characters" required minLength={8} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="signup-confirm" className="text-xs font-semibold text-slate-600">Confirm password</Label>
-                    <Input id="signup-confirm" name="confirm" type="password" value={signupData.confirm} onChange={handleSignupChange} placeholder="••••••••" required minLength={8} />
-                  </div>
-                  <Button
-                    type="submit"
-                    className="w-full bg-slate-900 text-white hover:bg-slate-800"
-                    disabled={isSigningUp}
-                  >
-                    {isSigningUp ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating account...</>) : ("Create account")}
-                  </Button>
-                </form>
-              )}
+                <div className="space-y-1.5">
+                  <Label htmlFor="signup-password" className="text-xs font-semibold text-slate-600">Password</Label>
+                  <Input id="signup-password" name="password" type="password" value={signupData.password} onChange={handleSignupChange} placeholder="At least 8 characters" required minLength={8} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="signup-confirm" className="text-xs font-semibold text-slate-600">Confirm password</Label>
+                  <Input id="signup-confirm" name="confirm" type="password" value={signupData.confirm} onChange={handleSignupChange} placeholder="••••••••" required minLength={8} />
+                </div>
+                <Button
+                  type="submit"
+                  className="w-full bg-slate-900 text-white hover:bg-slate-800"
+                  disabled={isSigningUp}
+                >
+                  {isSigningUp ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating account...</>) : ("Create account")}
+                </Button>
+              </form>
             </TabsContent>
+
           </Tabs>
 
           <p className="mt-8 text-center text-xs text-slate-400">

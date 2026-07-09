@@ -100,8 +100,21 @@ export function CandidateAuthProvider({ children }: { children: ReactNode }) {
     }
     // Supabase silently no-ops when the email already exists and returns identities: []
     const alreadyRegistered = !!data.user && (data.user.identities?.length ?? 0) === 0;
-    const needsConfirmation = !alreadyRegistered && !data.session;
-    return { error: null, needsConfirmation, alreadyRegistered };
+    if (alreadyRegistered) {
+      return { error: null, needsConfirmation: false, alreadyRegistered: true };
+    }
+    if (data.session) {
+      toast({ title: "Welcome!" });
+      return { error: null, needsConfirmation: false };
+    }
+    // No session returned — try immediate password sign-in so the user lands
+    // logged in even before the "Confirm email" toggle is flipped in Supabase.
+    const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
+    if (!signInErr) {
+      toast({ title: "Welcome!" });
+      return { error: null, needsConfirmation: false };
+    }
+    return { error: null, needsConfirmation: true };
   };
 
   const resetPassword = async (email: string) => {
