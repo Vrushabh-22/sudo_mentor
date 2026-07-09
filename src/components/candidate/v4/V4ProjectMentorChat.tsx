@@ -5,6 +5,7 @@ import { Sparkles, Send, Loader2, Bot, Maximize2, Minimize2, X } from 'lucide-re
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
+import { isInNativeApp, nativeSupportsFeature, onDeviceEnabled } from '@/lib/nativeLLMBridge';
 
 interface Msg { id?: string; role: 'user' | 'assistant'; content: string; created_at?: string }
 
