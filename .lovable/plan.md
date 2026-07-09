@@ -1,43 +1,47 @@
-## Root cause (verified with DB)
+## Goal
 
-Aptitude has 20 approved items but the workout returns 0 slots. All 20 items were uploaded with `stream_tag` set to *topic labels* — `HCF`, `Algebra`, `Ratio`, `Average`, `Percentages`, `Profit & Loss`, `Time & Work`, `Probability`, etc. Meanwhile:
+Add a full email + password auth flow alongside the existing social logins on `/auth`. Currently the screen shows only Google / GitHub / LinkedIn + a sign-in-only email form (no way to register).
 
-- `practice_pillars.aptitude.is_stream_aware = true`
-- The signed-in candidate (`akshay.deshmukh@techademy.com`) has `stream = "CSE"`
+## Changes
 
-The current JS filter in `practice-workout` keeps only items where `stream_tag == null || stream_tag == "CSE"`. None of the 20 items match either → empty pool → 0 slots → "No content for this workout yet" toast.
+### 1. `src/pages/CandidateAuth.tsx` — tabbed Sign in / Sign up UI
+- Replace the single email form with a two-tab layout (`Sign in` / `Sign up`) using existing shadcn `Tabs`.
+- **Sign in tab**: existing email + password form + a new "Forgot password?" link.
+- **Sign up tab**: email + password + confirm-password fields. On submit call `supabase.auth.signUp({ email, password, options: { emailRedirectTo: `${window.location.origin}/auth` } })`. Show a "Check your inbox to confirm your email" success state — do NOT redirect to portal (email confirmation required).
+- Client-side validation with `zod`: valid email, password ≥ 8 chars, confirm matches.
+- Keep the vapor gradient brand panel and social login buttons unchanged.
 
-So this is a data-shape mismatch (Excel row was tagged with a topic name in the `StreamTag` column), not a code bug in the sense of the earlier `.or()` failure — but the workout builder should not go silent on it.
+### 2. `src/hooks/useCandidateAuth.tsx` — add `signUp` + `resetPassword`
+- Add `signUp(email, password)` wrapping `supabase.auth.signUp` with `emailRedirectTo: ${origin}/auth`.
+- Add `resetPassword(email)` wrapping `supabase.auth.resetPasswordForEmail(email, { redirectTo: ${origin}/reset-password })`.
+- Expose both via context. Existing `signIn` / `signOut` unchanged.
 
-## Fix
+### 3. New page `src/pages/ForgotPassword.tsx`
+- Simple form: email → `resetPassword` → success message ("If an account exists, we've sent a reset link").
+- Same brand-panel layout as `CandidateAuth` (reuse styling).
 
-Two small changes, no DB migration needed.
+### 4. New page `src/pages/ResetPassword.tsx` (REQUIRED per Supabase recovery flow)
+- Public route. On mount, verify a recovery session is active (Supabase auto-signs in the user when they land from the reset email link with `type=recovery` in the URL hash).
+- Form: new password + confirm → `supabase.auth.updateUser({ password })` → redirect to `/portal` on success.
+- If no recovery session detected, show "Invalid or expired reset link" with a link back to `/auth`.
 
-### 1. Make stream filter best-effort in `supabase/functions/practice-workout/index.ts`
+### 5. `src/App.tsx` — register the two new routes
+Add inside the candidate `<Routes>`:
+- `/forgot-password` → `ForgotPassword`
+- `/reset-password` → `ResetPassword`
 
-Inside `getOrBuildToday`, replace the "hard drop when stream doesn't match" behaviour with:
+### 6. Trigger sanity
+The existing `handle_new_user()` DB trigger auto-creates a `candidates` row + assigns `candidate` role on every new `auth.users` insert. This already covers email signups — no DB migration needed.
 
-- Fetch all approved items for the subtopic.
-- If pillar is stream-aware AND candidate has a stream, split the pool into `preferred` (stream matches or is null) and `fallback` (everything else).
-- Pick from `preferred` first; only if `preferred` after `usedItemIds` filter is empty, fall back to `fallback`.
-- Add a `console.warn` when we had to fall back so admins can spot mis-tagged banks.
+## Notes for the user
 
-This keeps stream-awareness working when data is correctly tagged, and prevents the "silently empty" failure when it isn't.
+- **Email confirmation is required** — new signups won't be able to log in until they click the link Supabase emails them. Supabase's default (unbranded) auth email will be used unless you later ask to scaffold custom auth email templates.
+- Make sure **"Confirm email"** is enabled in Supabase Auth settings (it's on by default). If you'd rather auto-sign-in without confirmation, say so and I'll flip the flow.
+- No new secrets required. No DB schema changes.
 
-### 2. Friendlier + more diagnostic UI in `src/components/candidate/v4/practice/DailyWorkout.tsx`
+## Technical details
 
-`startPillar` currently shows the same red toast for both "empty slots" and "error returned". Split it:
-
-- If `error`: show the actual error message.
-- If `!error && !slots.length`: keep the friendly toast, but also `console.warn` the response so we can diagnose next time from the browser console.
-
-No other UI changes.
-
-## Files touched
-
-- `supabase/functions/practice-workout/index.ts` — best-effort stream filter + warn log
-- `src/components/candidate/v4/practice/DailyWorkout.tsx` — split error vs empty toasts + console.warn
-
-## Optional cleanup (not doing unless you confirm)
-
-The 20 Aptitude rows have topic names sitting in `stream_tag`. Once the code fix above is in, they'll be served correctly. If you want, we can also run a one-line SQL to `UPDATE practice_items SET stream_tag = NULL WHERE stream_tag NOT IN (<real streams>)` — but that's a data change, so I'll wait for your go-ahead.
+- Validation via `zod` (already a project dep — used elsewhere).
+- Password min length 8; no complexity rules (can add later if you want).
+- `/reset-password` must be a public route (not gated) since Supabase drops the user there directly from the email link.
+- The recovery-session check on `/reset-password` uses `supabase.auth.onAuthStateChange` listening for the `PASSWORD_RECOVERY` event, plus a `getSession` fallback.
