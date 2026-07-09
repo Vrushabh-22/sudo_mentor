@@ -14,3 +14,7 @@ verify_jwt = true
 
 [functions.admin-azure-storage]
 verify_jwt = true
+
+[functions.send-auth-email]
+verify_jwt = false
+

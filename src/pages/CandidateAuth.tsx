@@ -50,6 +50,7 @@ export default function CandidateAuth() {
   const [isAutoLoggingIn, setIsAutoLoggingIn] = useState(false);
   const [autoLoginError, setAutoLoginError] = useState<string | null>(null);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"signin" | "signup">("signin");
   const { toast } = useToast();
 
   useEffect(() => {
@@ -179,15 +180,25 @@ export default function CandidateAuth() {
       return;
     }
     setIsSigningUp(true);
-    const { error, needsConfirmation } = await signUp(parsed.data.email, parsed.data.password);
+    const { error, needsConfirmation, alreadyRegistered } = await signUp(parsed.data.email, parsed.data.password);
     setIsSigningUp(false);
-    if (!error) {
-      if (needsConfirmation) {
-        setSignupSuccess(true);
-      } else {
-        toast({ title: "Account created!", description: "Welcome aboard." });
-        window.location.href = "/portal";
-      }
+    if (error) return;
+    if (alreadyRegistered) {
+      toast({
+        title: "Email already registered",
+        description: "Sign in below or reset your password if you forgot it.",
+      });
+      setFormData((prev) => ({ ...prev, email: parsed.data.email }));
+      setSignupData({ email: "", password: "", confirm: "" });
+      setActiveTab("signin");
+      setTimeout(() => document.getElementById("password")?.focus(), 50);
+      return;
+    }
+    if (needsConfirmation) {
+      setSignupSuccess(true);
+    } else {
+      toast({ title: "Account created!", description: "Welcome aboard." });
+      window.location.href = "/portal";
     }
   };
 
@@ -332,7 +343,7 @@ export default function CandidateAuth() {
             </div>
           </div>
 
-          <Tabs defaultValue="signin" className="w-full">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "signin" | "signup")} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="signin">Sign in</TabsTrigger>
               <TabsTrigger value="signup">Sign up</TabsTrigger>

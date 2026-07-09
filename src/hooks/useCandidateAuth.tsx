@@ -12,7 +12,7 @@ interface CandidateUser {
 interface CandidateAuthContextType {
   user: CandidateUser | null;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
-  signUp: (email: string, password: string) => Promise<{ error: any; needsConfirmation?: boolean }>;
+  signUp: (email: string, password: string) => Promise<{ error: any; needsConfirmation?: boolean; alreadyRegistered?: boolean }>;
   resetPassword: (email: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   loading: boolean;
@@ -98,8 +98,10 @@ export function CandidateAuthProvider({ children }: { children: ReactNode }) {
       toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
       return { error };
     }
-    const needsConfirmation = !data.session;
-    return { error: null, needsConfirmation };
+    // Supabase silently no-ops when the email already exists and returns identities: []
+    const alreadyRegistered = !!data.user && (data.user.identities?.length ?? 0) === 0;
+    const needsConfirmation = !alreadyRegistered && !data.session;
+    return { error: null, needsConfirmation, alreadyRegistered };
   };
 
   const resetPassword = async (email: string) => {

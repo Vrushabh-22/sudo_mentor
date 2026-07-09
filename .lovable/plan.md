@@ -1,47 +1,52 @@
-## Goal
+## Two independent fixes
 
-Add a full email + password auth flow alongside the existing social logins on `/auth`. Currently the screen shows only Google / GitHub / LinkedIn + a sign-in-only email form (no way to register).
+### Fix 1 — "Already registered" silent-failure (ship immediately, no config)
 
-## Changes
+Supabase's `signUp` silently no-ops for existing emails and returns `data.user.identities: []`. Today the UI shows "Check your inbox" — misleading. Detect and message it.
 
-### 1. `src/pages/CandidateAuth.tsx` — tabbed Sign in / Sign up UI
-- Replace the single email form with a two-tab layout (`Sign in` / `Sign up`) using existing shadcn `Tabs`.
-- **Sign in tab**: existing email + password form + a new "Forgot password?" link.
-- **Sign up tab**: email + password + confirm-password fields. On submit call `supabase.auth.signUp({ email, password, options: { emailRedirectTo: `${window.location.origin}/auth` } })`. Show a "Check your inbox to confirm your email" success state — do NOT redirect to portal (email confirmation required).
-- Client-side validation with `zod`: valid email, password ≥ 8 chars, confirm matches.
-- Keep the vapor gradient brand panel and social login buttons unchanged.
+- **`src/hooks/useCandidateAuth.tsx`** — in `signUp`, after `supabase.auth.signUp`, check `data.user?.identities?.length === 0`. If so, return `{ error: null, alreadyRegistered: true, needsConfirmation: false }`.
+- **`src/pages/CandidateAuth.tsx`** — if `alreadyRegistered`, skip the success card. Show a toast: *"This email is already registered. Sign in or reset your password."* Auto-switch tab to Sign in, prefill the email, focus the password field.
 
-### 2. `src/hooks/useCandidateAuth.tsx` — add `signUp` + `resetPassword`
-- Add `signUp(email, password)` wrapping `supabase.auth.signUp` with `emailRedirectTo: ${origin}/auth`.
-- Add `resetPassword(email)` wrapping `supabase.auth.resetPasswordForEmail(email, { redirectTo: ${origin}/reset-password })`.
-- Expose both via context. Existing `signIn` / `signOut` unchanged.
+That alone eliminates most "no email received" reports.
 
-### 3. New page `src/pages/ForgotPassword.tsx`
-- Simple form: email → `resetPassword` → success message ("If an account exists, we've sent a reset link").
-- Same brand-panel layout as `CandidateAuth` (reuse styling).
+### Fix 2 — Branded auth emails via Resend + Supabase Send-Email HTTPS Hook
 
-### 4. New page `src/pages/ResetPassword.tsx` (REQUIRED per Supabase recovery flow)
-- Public route. On mount, verify a recovery session is active (Supabase auto-signs in the user when they land from the reset email link with `type=recovery` in the URL hash).
-- Form: new password + confirm → `supabase.auth.updateUser({ password })` → redirect to `/portal` on success.
-- If no recovery session detected, show "Invalid or expired reset link" with a link back to `/auth`.
+Because this project uses external Supabase, we bypass Lovable's email scaffolder and use Supabase's native HTTPS hook pointed at our own edge function.
 
-### 5. `src/App.tsx` — register the two new routes
-Add inside the candidate `<Routes>`:
-- `/forgot-password` → `ForgotPassword`
-- `/reset-password` → `ResetPassword`
+**Sequence:**
 
-### 6. Trigger sanity
-The existing `handle_new_user()` DB trigger auto-creates a `candidates` row + assigns `candidate` role on every new `auth.users` insert. This already covers email signups — no DB migration needed.
+1. **I deploy the function first** (so you have a URL to paste in the Supabase hook dialog):
+   - `supabase/functions/send-auth-email/index.ts`:
+     - Standard CORS + `OPTIONS` handler.
+     - Verifies the Supabase webhook signature with `standardwebhooks` (`npm:standardwebhooks@1.0.0`) using `SEND_EMAIL_HOOK_SECRET`.
+     - Parses `{ user, email_data }` payload. `email_data` fields used: `token_hash`, `redirect_to`, `email_action_type`, `site_url`.
+     - Builds confirmation URL: `${site_url}/auth/v1/verify?token=${token_hash}&type=${email_action_type}&redirect_to=${redirect_to}`.
+     - Picks subject + body per `email_action_type`: `signup` → "Confirm your email", `recovery` → "Reset your password", `magiclink` → "Your sign-in link", `email_change` → "Confirm your new email", `invite` → "You're invited".
+     - Simple branded HTML template — SudoMentor wordmark, gradient header (#6366f1 → #a855f7), CTA button, plain-text fallback.
+     - Sends via `POST https://api.resend.com/emails` with `Authorization: Bearer ${RESEND_API_KEY}`, `from: ${AUTH_EMAIL_FROM}`, `to: [user.email]`.
+     - Returns 200 on success, 4xx/5xx with JSON error and CORS headers otherwise.
+   - `supabase/config.toml` — add `[functions.send-auth-email]` with `verify_jwt = false`.
+   - Deploy via `supabase--deploy_edge_functions`.
+   - I'll give you the function URL to paste into the Supabase hook dialog.
 
-## Notes for the user
+2. **You do (external):**
+   - Verify a domain in Resend (DKIM/SPF DNS records).
+   - Create a Resend API key.
+   - Back in Supabase → Auth → Hooks → **switch Hook type to HTTPS**, paste the function URL, click **Generate secret**, copy the `v1,whsec_…` value.
+   - Paste back to me: Resend API key, "from" address (e.g. `SudoMentor <noreply@sudomentor.com>`), signing secret.
 
-- **Email confirmation is required** — new signups won't be able to log in until they click the link Supabase emails them. Supabase's default (unbranded) auth email will be used unless you later ask to scaffold custom auth email templates.
-- Make sure **"Confirm email"** is enabled in Supabase Auth settings (it's on by default). If you'd rather auto-sign-in without confirmation, say so and I'll flip the flow.
-- No new secrets required. No DB schema changes.
+3. **I store secrets** via `add_secret`: `RESEND_API_KEY`, `AUTH_EMAIL_FROM`, `SEND_EMAIL_HOOK_SECRET`.
 
-## Technical details
+4. **You enable the hook** in Supabase. All auth emails now branded and delivered via Resend.
 
-- Validation via `zod` (already a project dep — used elsewhere).
-- Password min length 8; no complexity rules (can add later if you want).
-- `/reset-password` must be a public route (not gated) since Supabase drops the user there directly from the email link.
-- The recovery-session check on `/reset-password` uses `supabase.auth.onAuthStateChange` listening for the `PASSWORD_RECOVERY` event, plus a `getSession` fallback.
+### Simpler alternative (skip Fix 2 code, still get deliverability)
+Supabase Dashboard → Project Settings → **Authentication → SMTP Settings** → paste Resend SMTP creds. Templates stay generic (edit in Auth → Email Templates by hand). Zero code, no hook, no branded HTML. Say the word if you prefer this.
+
+## Files touched
+
+- `src/hooks/useCandidateAuth.tsx` — detect `alreadyRegistered`
+- `src/pages/CandidateAuth.tsx` — react to `alreadyRegistered`, switch tab + prefill
+- `supabase/functions/send-auth-email/index.ts` — new
+- `supabase/config.toml` — register function with `verify_jwt = false`
+
+No DB migrations. Existing signup/recovery flow unaffected until you enable the hook.
