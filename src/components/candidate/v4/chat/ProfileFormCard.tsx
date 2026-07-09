@@ -74,7 +74,7 @@ export function ProfileFormCard({ fields, initial: _initial, onSubmitted }: Prop
       {fields.includes('institution') && (
         <div>
           <Label className="text-xs">Institution</Label>
-          <Input className="h-9 text-sm" placeholder="College name" value={vals.institution || ''} onChange={(e) => set('institution', e.target.value)} />
+          <InstituteAutocomplete value={vals.institution || ''} onChange={(v) => set('institution', v)} placeholder="Start typing your college…" />
         </div>
       )}
       {fields.includes('graduation_year') && (
