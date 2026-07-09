@@ -37,13 +37,16 @@ const LinkedInIcon = () => (
 );
 
 export default function CandidateAuth() {
-  const { user, signIn, loading } = useCandidateAuth();
+  const { user, signIn, signUp, loading } = useCandidateAuth();
   const [searchParams] = useSearchParams();
   const [formData, setFormData] = useState({
     email: searchParams.get("email") || "",
     password: "",
   });
+  const [signupData, setSignupData] = useState({ email: "", password: "", confirm: "" });
+  const [signupSuccess, setSignupSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSigningUp, setIsSigningUp] = useState(false);
   const [isAutoLoggingIn, setIsAutoLoggingIn] = useState(false);
   const [autoLoginError, setAutoLoginError] = useState<string | null>(null);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
