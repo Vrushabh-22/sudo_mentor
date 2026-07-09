@@ -180,15 +180,25 @@ export default function CandidateAuth() {
       return;
     }
     setIsSigningUp(true);
-    const { error, needsConfirmation } = await signUp(parsed.data.email, parsed.data.password);
+    const { error, needsConfirmation, alreadyRegistered } = await signUp(parsed.data.email, parsed.data.password);
     setIsSigningUp(false);
-    if (!error) {
-      if (needsConfirmation) {
-        setSignupSuccess(true);
-      } else {
-        toast({ title: "Account created!", description: "Welcome aboard." });
-        window.location.href = "/portal";
-      }
+    if (error) return;
+    if (alreadyRegistered) {
+      toast({
+        title: "Email already registered",
+        description: "Sign in below or reset your password if you forgot it.",
+      });
+      setFormData((prev) => ({ ...prev, email: parsed.data.email }));
+      setSignupData({ email: "", password: "", confirm: "" });
+      setActiveTab("signin");
+      setTimeout(() => document.getElementById("password")?.focus(), 50);
+      return;
+    }
+    if (needsConfirmation) {
+      setSignupSuccess(true);
+    } else {
+      toast({ title: "Account created!", description: "Welcome aboard." });
+      window.location.href = "/portal";
     }
   };
 
