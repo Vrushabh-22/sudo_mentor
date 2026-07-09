@@ -654,6 +654,48 @@ export type Database = {
           },
         ]
       }
+      institutes: {
+        Row: {
+          aliases: string[]
+          city: string | null
+          country: string
+          created_at: string
+          id: string
+          name: string
+          source: string
+          state: string | null
+          type: string | null
+          usage_count: number
+          verified: boolean
+        }
+        Insert: {
+          aliases?: string[]
+          city?: string | null
+          country?: string
+          created_at?: string
+          id?: string
+          name: string
+          source?: string
+          state?: string | null
+          type?: string | null
+          usage_count?: number
+          verified?: boolean
+        }
+        Update: {
+          aliases?: string[]
+          city?: string | null
+          country?: string
+          created_at?: string
+          id?: string
+          name?: string
+          source?: string
+          state?: string | null
+          type?: string | null
+          usage_count?: number
+          verified?: boolean
+        }
+        Relationships: []
+      }
       learning_paths_catalog: {
         Row: {
           created_at: string
