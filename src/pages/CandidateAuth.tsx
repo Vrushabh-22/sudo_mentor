@@ -50,6 +50,7 @@ export default function CandidateAuth() {
   const [isAutoLoggingIn, setIsAutoLoggingIn] = useState(false);
   const [autoLoginError, setAutoLoginError] = useState<string | null>(null);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"signin" | "signup">("signin");
   const { toast } = useToast();
 
   useEffect(() => {
