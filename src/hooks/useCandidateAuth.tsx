@@ -12,7 +12,7 @@ interface CandidateUser {
 interface CandidateAuthContextType {
   user: CandidateUser | null;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
-  signUp: (email: string, password: string) => Promise<{ error: any; needsConfirmation?: boolean }>;
+  signUp: (email: string, password: string) => Promise<{ error: any; needsConfirmation?: boolean; alreadyRegistered?: boolean }>;
   resetPassword: (email: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   loading: boolean;
