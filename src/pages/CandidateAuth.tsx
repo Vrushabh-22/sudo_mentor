@@ -44,7 +44,7 @@ export default function CandidateAuth() {
     password: "",
   });
   const [signupData, setSignupData] = useState({ email: "", password: "", confirm: "" });
-  const [signupSuccess, setSignupSuccess] = useState(false);
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSigningUp, setIsSigningUp] = useState(false);
   const [isAutoLoggingIn, setIsAutoLoggingIn] = useState(false);
