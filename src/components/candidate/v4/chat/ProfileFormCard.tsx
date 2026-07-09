@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { invokeV4 } from '@/lib/candidatePortalV4Client';
 import { Loader2, CheckCircle2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { InstituteAutocomplete } from './InstituteAutocomplete';
 
 const STREAMS = ['CSE', 'IT', 'ECE', 'EEE', 'Mech', 'Civil', 'MBA', 'BBA', 'B.Sc', 'M.Sc', 'BCA', 'MCA', 'Other'];
 
