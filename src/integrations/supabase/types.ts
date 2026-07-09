@@ -1635,6 +1635,19 @@ export type Database = {
         Args: { _provider_id: string }
         Returns: undefined
       }
+      search_institutes: {
+        Args: { lim?: number; q: string }
+        Returns: {
+          city: string
+          country: string
+          id: string
+          name: string
+          score: number
+          state: string
+          type: string
+          usage_count: number
+        }[]
+      }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
     }

@@ -87,14 +87,8 @@ Deno.serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
-    // 1) DB search: trigram similarity on name OR alias exact/contains.
-    const pattern = `%${q.replace(/[%_]/g, "")}%`;
-    const { data: dbRows } = await admin
-      .from("institutes")
-      .select("id,name,city,state,country,type,aliases,usage_count")
-      .or(`name.ilike.${pattern},aliases.cs.{${q}}`)
-      .order("usage_count", { ascending: false })
-      .limit(limit);
+    // 1) DB search via RPC (fuzzy across name + aliases).
+    const { data: dbRows } = await admin.rpc("search_institutes", { q, lim: limit });
 
     const items: Institute[] = (dbRows ?? []).map((r: any) => ({
       id: r.id,
@@ -105,6 +99,7 @@ Deno.serve(async (req) => {
       type: r.type,
       suggested: false,
     }));
+
 
     // 2) LLM fallback if empty and query is meaningful.
     if (items.length === 0 && q.length >= 4) {
