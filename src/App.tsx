@@ -9,6 +9,8 @@ import CandidateAuth from "@/pages/CandidateAuth";
 import AdminLogin from "@/pages/AdminLogin";
 import AdminShell from "@/pages/AdminShell";
 import Landing from "@/pages/Landing";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 
 const queryClient = new QueryClient();
 
@@ -33,6 +35,8 @@ export default function App() {
                     <Route path="/portal" element={<CandidatePortalV4 />} />
                     <Route path="/portal/*" element={<CandidatePortalV4 />} />
                     <Route path="/auth" element={<CandidateAuth />} />
+                    <Route path="/forgot-password" element={<ForgotPassword />} />
+                    <Route path="/reset-password" element={<ResetPassword />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
                 </CandidateAuthProvider>
