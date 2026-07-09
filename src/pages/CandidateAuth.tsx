@@ -332,27 +332,69 @@ export default function CandidateAuth() {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-xs font-semibold text-slate-600">Email</Label>
-              <Input id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="you@college.edu" required />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-xs font-semibold text-slate-600">Password</Label>
-              <Input id="password" name="password" type="password" value={formData.password} onChange={handleInputChange} placeholder="••••••••" required />
-            </div>
-            <Button
-              type="submit"
-              className="w-full bg-slate-900 text-white hover:bg-slate-800"
-              disabled={isSubmitting || !formData.email || !formData.password}
-            >
-              {isSubmitting ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Signing in...</>
+          <Tabs defaultValue="signin" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="signin">Sign in</TabsTrigger>
+              <TabsTrigger value="signup">Sign up</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="signin" className="mt-5">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-xs font-semibold text-slate-600">Email</Label>
+                  <Input id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="you@college.edu" required />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password" className="text-xs font-semibold text-slate-600">Password</Label>
+                    <Link to="/forgot-password" className="text-xs font-medium text-slate-500 hover:text-slate-900">Forgot?</Link>
+                  </div>
+                  <Input id="password" name="password" type="password" value={formData.password} onChange={handleInputChange} placeholder="••••••••" required />
+                </div>
+                <Button
+                  type="submit"
+                  className="w-full bg-slate-900 text-white hover:bg-slate-800"
+                  disabled={isSubmitting || !formData.email || !formData.password}
+                >
+                  {isSubmitting ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Signing in...</>) : ("Sign in")}
+                </Button>
+              </form>
+            </TabsContent>
+
+            <TabsContent value="signup" className="mt-5">
+              {signupSuccess ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-center">
+                  <MailCheck className="mx-auto h-8 w-8 text-emerald-600" />
+                  <h3 className="mt-3 font-semibold text-slate-900">Check your inbox</h3>
+                  <p className="mt-1 text-sm text-slate-600">
+                    We've sent a confirmation link to <strong>{signupData.email}</strong>. Click it to activate your account.
+                  </p>
+                </div>
               ) : (
-                "Sign in"
+                <form onSubmit={handleSignup} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="signup-email" className="text-xs font-semibold text-slate-600">Email</Label>
+                    <Input id="signup-email" name="email" type="email" value={signupData.email} onChange={handleSignupChange} placeholder="you@college.edu" required />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="signup-password" className="text-xs font-semibold text-slate-600">Password</Label>
+                    <Input id="signup-password" name="password" type="password" value={signupData.password} onChange={handleSignupChange} placeholder="At least 8 characters" required minLength={8} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="signup-confirm" className="text-xs font-semibold text-slate-600">Confirm password</Label>
+                    <Input id="signup-confirm" name="confirm" type="password" value={signupData.confirm} onChange={handleSignupChange} placeholder="••••••••" required minLength={8} />
+                  </div>
+                  <Button
+                    type="submit"
+                    className="w-full bg-slate-900 text-white hover:bg-slate-800"
+                    disabled={isSigningUp}
+                  >
+                    {isSigningUp ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating account...</>) : ("Create account")}
+                  </Button>
+                </form>
               )}
-            </Button>
-          </form>
+            </TabsContent>
+          </Tabs>
 
           <p className="mt-8 text-center text-xs text-slate-400">
             By continuing, you agree to our{" "}
