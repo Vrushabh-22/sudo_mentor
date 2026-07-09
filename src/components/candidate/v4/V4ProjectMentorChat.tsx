@@ -5,6 +5,7 @@ import { Sparkles, Send, Loader2, Bot, Maximize2, Minimize2, X } from 'lucide-re
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
+import { isInNativeApp, nativeSupportsFeature, onDeviceEnabled } from '@/lib/nativeLLMBridge';
 
 interface Msg { id?: string; role: 'user' | 'assistant'; content: string; created_at?: string }
 
@@ -195,7 +196,12 @@ export function V4ProjectMentorChat({ projectId, projectTitle }: { projectId: st
       <div className="flex items-center gap-2 px-3 py-2.5 bg-violet-50 text-slate-900 border-b border-violet-100">
         <div className="h-7 w-7 rounded-full bg-white ring-1 ring-violet-200 flex items-center justify-center"><Bot className="h-4 w-4 text-violet-600" /></div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold leading-tight">Project Mentor</div>
+          <div className="text-sm font-semibold leading-tight flex items-center gap-1.5">
+            Project Mentor
+            {isInNativeApp() && onDeviceEnabled() && nativeSupportsFeature('project_mentor_chat') && (
+              <span className="text-[9px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200">On‑device</span>
+            )}
+          </div>
           <div className="text-[10px] text-slate-500 truncate">Ask anything about this project</div>
         </div>
         <Sparkles className="h-4 w-4 text-violet-600" />
