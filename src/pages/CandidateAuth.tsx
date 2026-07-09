@@ -6,10 +6,12 @@ import { useCandidateAuth } from "@/hooks/useCandidateAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, ArrowLeft, Brain, Code2, Trophy, Sparkles } from "lucide-react";
+import { Loader2, ArrowLeft, Brain, Code2, Trophy, Sparkles, MailCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { callAutoLoginCandidate } from "@/utils/autoLoginCandidate";
 import { useToast } from "@/hooks/use-toast";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { z } from "zod";
 
 const VAPOR = { v1: "#c4b5fd", v2: "#818cf8", v3: "#67e8f9", v4: "#a5f3fc" };
 
