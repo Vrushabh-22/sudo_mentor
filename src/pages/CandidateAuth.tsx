@@ -343,7 +343,7 @@ export default function CandidateAuth() {
             </div>
           </div>
 
-          <Tabs defaultValue="signin" className="w-full">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "signin" | "signup")} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="signin">Sign in</TabsTrigger>
               <TabsTrigger value="signup">Sign up</TabsTrigger>
