@@ -11,6 +11,10 @@ import { LearningPathView } from './LearningPathView';
 import { MockInterviewOverlay } from './MockInterviewOverlay';
 import { InterviewRecapCard, type InterviewRecap } from './InterviewRecapCard';
 import { missingEssentials } from '@/lib/profileCompleteness';
+import { uuid } from '@/lib/uuid';
+import { shouldUseNative, streamNativeLLM } from '@/lib/llmClient';
+
+const MENTOR_FEATURE = 'mentor_copilot_chat';
 
 interface Msg {
   id: string;
