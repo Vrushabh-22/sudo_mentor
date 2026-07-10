@@ -77,5 +77,11 @@ export async function streamLLM(req: Omit<LLMRequest, "mode">): Promise<Response
   });
 }
 
-// Re-export bridge helpers for UI surfaces that want to show an "on-device" indicator.
-export { isInNativeApp, nativeSupportsFeature, onDeviceEnabled } from "./nativeLLMBridge";
+// Re-export bridge helpers for UI surfaces that want to show an "on-device" indicator,
+// or that own their own cloud fallback and so cannot route through callLLM.
+export {
+  isInNativeApp,
+  nativeSupportsFeature,
+  onDeviceEnabled,
+  streamNativeLLM,
+} from "./nativeLLMBridge";
