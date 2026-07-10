@@ -162,7 +162,7 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
         setSessionId(data?.sessionId || undefined);
         const loadedMessages = (Array.isArray(data?.messages)
           ? data.messages.map((m: any) => ({
-              id: m.id || crypto.randomUUID(),
+              id: m.id || uuid(),
               role: m.role,
               content: m.content || '',
               createdAt: m.created_at,
@@ -268,7 +268,7 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
       const data = await resp.json();
       const olderMessages = (Array.isArray(data?.messages)
         ? data.messages.map((m: any) => ({
-            id: m.id || crypto.randomUUID(),
+            id: m.id || uuid(),
             role: m.role,
             content: m.content || '',
             createdAt: m.created_at,
@@ -294,12 +294,12 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
     if (!text.trim() || streaming) return;
 
     const userMessage: Msg = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       role: 'user',
       content: text.trim(),
       createdAt: new Date().toISOString(),
     };
-    const assistantPlaceholderId = crypto.randomUUID();
+    const assistantPlaceholderId = uuid();
 
     const next = [...messages, userMessage];
     setMessages([...next, { id: assistantPlaceholderId, role: 'assistant', content: '' }]);
@@ -558,7 +558,7 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
             setShowInterviewOverlay(false);
             if (!recap) return;
             const recapMsg: Msg = {
-              id: crypto.randomUUID(),
+              id: uuid(),
               role: 'assistant',
               content: '',
               createdAt: new Date().toISOString(),
