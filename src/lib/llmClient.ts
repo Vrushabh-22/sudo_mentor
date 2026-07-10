@@ -19,9 +19,12 @@ export type LLMRequest = {
 };
 
 // Features allowed to run on the on-device model when the native bridge is present.
-const NATIVE_FEATURE_ALLOWLIST = new Set<string>(["project_mentor_chat"]);
+const NATIVE_FEATURE_ALLOWLIST = new Set<string>([
+  "project_mentor_chat",
+  "mentor_copilot_chat",
+]);
 
-function shouldUseNative(feature: string): boolean {
+export function shouldUseNative(feature: string): boolean {
   return (
     isInNativeApp() &&
     onDeviceEnabled() &&
