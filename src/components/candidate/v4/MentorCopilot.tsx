@@ -307,21 +307,30 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
     setStreaming(true);
     shouldStickToBottomRef.current = true;
 
-    try {
+    const outbound = next.map((message) => ({ role: message.role, content: message.content }));
+
+    let acc = '';
+    const paint = (delta: string) => {
+      acc += delta;
+      shouldStickToBottomRef.current = true;
+      setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, content: acc } : m)));
+    };
+    const resetBubble = () => {
+      acc = '';
+      setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, content: '' } : m)));
+    };
+
+    async function streamFromCloud() {
       const { data: { session } } = await supabase.auth.getSession();
       const resp = await fetch(`${SUPABASE_URL}/functions/v1/mentor-copilot-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
-        body: JSON.stringify({
-          messages: next.map((message) => ({ role: message.role, content: message.content })),
-          sessionId,
-        }),
+        body: JSON.stringify({ messages: outbound, sessionId }),
       });
       if (!resp.ok || !resp.body) throw new Error('Chat failed');
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
-      let acc = '';
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -341,13 +350,23 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
               continue;
             }
             const c = p.choices?.[0]?.delta?.content;
-            if (c) {
-              acc += c;
-              shouldStickToBottomRef.current = true;
-              setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, content: acc } : m)));
-            }
+            if (c) paint(c);
           } catch {}
         }
+      }
+    }
+
+    try {
+      if (shouldUseNative(MENTOR_FEATURE)) {
+        try {
+          await streamNativeLLM({ feature: MENTOR_FEATURE, messages: outbound }, paint);
+        } catch (e) {
+          console.warn('[mentor] on-device failed, falling back to cloud', e);
+          resetBubble();
+          await streamFromCloud();
+        }
+      } else {
+        await streamFromCloud();
       }
       const finishedAt = new Date().toISOString();
       setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, createdAt: finishedAt } : m)));
@@ -357,6 +376,7 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
       setStreaming(false);
     }
   }
+
 
   function handleProfileSaved() {
     onProfileChanged();
