@@ -1,97 +1,41 @@
+Add an on-device streaming path to the Mentor chat so prompts are answered by the phone's LLM when the React Native shell is ready, with cloud (`mentor-copilot-chat`) as the fallback.
 
-# Institute autocomplete for the profile setup
+## Files
 
-Replace the free-text "College name" input in `ProfileFormCard` with a typeahead that suggests real institute names. Use a **hybrid** source: a database table of known institutes (fast, deterministic, cheap) with an **LLM fallback** for queries that don't match — accepted picks are written back to the table so the list grows over time.
+### 1. NEW `src/lib/uuid.ts`
+Small `uuid()` shim that uses `crypto.randomUUID()` when available and otherwise builds a v4 UUID from `crypto.getRandomValues()`. Needed because `randomUUID` is secure-context only and is `undefined` in the WebView over plain http on a LAN IP.
 
-Pure-LLM on every keystroke would be slow, expensive, and prone to hallucinated colleges. Pure static list would miss long-tail institutes. Hybrid gives us both.
+### 2. `src/lib/nativeLLMBridge.ts` — add streaming
+- Extend the top protocol comment to document `stream: true`, the batched `chunk(id, delta)` / `done(id)` callbacks, and that streaming timeout is an idle budget.
+- Extend `Pending` with `timeoutMs`, `acc`, `onChunk?`.
+- Add `chunk` and `done` to the `window.__RN_LLM__` global type.
+- Add a `rearm(id, p)` helper that resets the idle timer on each chunk.
+- Inside `install()`, add `chunk` (rearm + append + forward delta) and `done` (clear timer, resolve accumulated text) between `reject` and `capabilities`.
+- Refactor `callNativeLLM` into a private `request(req, timeoutMs, onChunk?)` that sets `stream: Boolean(onChunk)` in the payload and stores `timeoutMs/acc/onChunk` in the pending entry. Re-export:
+  - `callNativeLLM(req, timeoutMs=45_000)` — unchanged public signature, delegates to `request`.
+  - `streamNativeLLM(req, onChunk, timeoutMs=45_000)` — new, delegates to `request` with `onChunk`.
+- Leave `resolve`, `reject`, `capabilities`, `isInNativeApp`, `nativeBridgeReady`, `nativeSupportsFeature`, `onDeviceEnabled`, `LS_KEY`, and the eager `install()` call untouched.
 
-## Data flow
+### 3. `src/lib/llmClient.ts` — three edits
+- Add `"mentor_copilot_chat"` to `NATIVE_FEATURE_ALLOWLIST`.
+- Export `shouldUseNative` (add the `export` keyword).
+- Add `streamNativeLLM` to the bottom re-export block from `./nativeLLMBridge`.
 
-```text
-User types "iit b"
-   │
-   ▼
-Debounce 250ms → edge function `institute-search?q=iit b`
-   │
-   ├─ pg_trgm search on public.institutes  → 8 matches → return
-   │
-   └─ if 0 matches AND q.length ≥ 4:
-         call Lovable AI (google/gemini-3-flash-preview) with a strict
-         JSON schema asking for up to 5 real institutes matching q
-         → validate → upsert into public.institutes with source='llm', verified=false
-         → return them tagged {suggested:true}
-```
+### 4. `src/components/candidate/v4/MentorCopilot.tsx`
+- Import `uuid` from `@/lib/uuid` and `{ shouldUseNative, streamNativeLLM }` from `@/lib/llmClient`; add `const MENTOR_FEATURE = "mentor_copilot_chat"`.
+- Replace all five `crypto.randomUUID()` calls with `uuid()` (in `loadHistory`, `loadOlderMessages`, `send` ×2, and the interview-recap message built in `MockInterviewOverlay`'s `onClose`).
+- Rewrite `send()`: extract the existing SSE reader into a local `streamFromCloud()`, add a shared `paint(delta)` used by both branches so the typing animation is identical, and add a `resetBubble()` used before falling back. Flow:
+  1. If `shouldUseNative(MENTOR_FEATURE)`, try `streamNativeLLM({ feature, messages: outbound }, paint)`.
+  2. On any native error, log a warning, call `resetBubble()`, and run `streamFromCloud()`.
+  3. Otherwise call `streamFromCloud()` directly.
+  4. On overall failure, replace the placeholder bubble with the existing "😔 Sorry…" error message.
+- If a leftover bare `return;` sits above the `if (!text.trim() ...)` guard, remove it.
 
-On the client, show DB matches first, then a divider "Suggested — tap to add", then LLM suggestions. Selecting a suggested one flips `verified=true`. If nothing fits, an "Add my institute" row lets the user submit exactly what they typed (stored `verified=false, source='user'`).
+## Non-goals / constraints
+- No changes to `vite.config.ts`, `V4ProjectMentorChat.tsx` (its one-shot `callNativeLLM` path stays), or any edge function.
+- No new UI, badges, debug output, or build stamps.
+- `callNativeLLM`'s public signature and behaviour stay identical.
+- Native replies bypass `mentor-copilot-chat`, so they are not persisted — accepted for now.
 
-## Database (new migration)
-
-```sql
-CREATE TABLE public.institutes (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name text NOT NULL,
-  aliases text[] NOT NULL DEFAULT '{}',
-  city text,
-  state text,
-  country text NOT NULL DEFAULT 'India',
-  type text,                   -- 'university' | 'college' | 'iit' | 'nit' | 'iiit' | ...
-  source text NOT NULL DEFAULT 'seed', -- 'seed' | 'llm' | 'user'
-  verified boolean NOT NULL DEFAULT false,
-  usage_count integer NOT NULL DEFAULT 0,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX institutes_name_country_key ON public.institutes (lower(name), country);
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE INDEX institutes_name_trgm ON public.institutes USING gin (name gin_trgm_ops);
-CREATE INDEX institutes_aliases_gin ON public.institutes USING gin (aliases);
-
-GRANT SELECT ON public.institutes TO authenticated;
-GRANT ALL ON public.institutes TO service_role;
-
-ALTER TABLE public.institutes ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "read institutes" ON public.institutes FOR SELECT TO authenticated USING (true);
--- writes only via edge function (service role bypasses RLS)
-```
-
-Seed with a curated CSV of ~200 top Indian institutes (IITs, NITs, IIITs, top private universities) so day-one UX is decent — no need to bulk-load AICTE's full list.
-
-## Edge function `institute-search`
-
-- `GET /institute-search?q=<text>&limit=8`
-- JWT-guarded (verify token; only issued to logged-in candidates).
-- Query pg_trgm on `name` + array match on `aliases`, ordered by `similarity DESC, usage_count DESC`.
-- If 0 rows and `q.length >= 4`, call Lovable AI with structured output:
-  ```
-  { institutes: [{ name, city?, state?, country?, type? }] }
-  ```
-  Prompt: "Return up to 5 real, currently-operating higher-education institutes matching the query. If uncertain, return fewer."
-- Upsert results (`source='llm'`, `verified=false`) via service role. Return combined list with a `suggested` flag.
-- On any successful profile save that includes an institute, increment `usage_count` (separate edge action or DB trigger).
-
-Rate-limit LLM branch: max 20 LLM calls / user / hour (in-memory `Map` keyed by `user_id` with a rolling window is enough for v1).
-
-## Web changes
-
-### `src/components/candidate/v4/chat/InstituteAutocomplete.tsx` (new)
-- Controlled component `{ value, onChange(name, id?) }`.
-- Uses shadcn `Command` + `Popover` (already in project) for the dropdown.
-- Debounced fetch (250ms) via `supabase.functions.invoke('institute-search', { body: { q } })`.
-- States: loading, results (with `suggested` divider), empty → "Add \"<q>\"" row.
-- Keyboard nav (↑/↓/Enter), shows city/state as secondary text.
-
-### `src/components/candidate/v4/chat/ProfileFormCard.tsx`
-Swap the plain `Input` at line 76 for `<InstituteAutocomplete value={vals.institution || ''} onChange={(v) => set('institution', v)} />`. No other changes.
-
-### Optional: also swap the same field on `CandidateAuth` signup if the institute question appears there — I didn't find it, so out of scope unless you point me at it.
-
-## Cost / UX notes
-
-- DB hit is < 30 ms and free. Only unseen queries reach the LLM.
-- One LLM call ~ 200 output tokens on `google/gemini-3-flash-preview` — fractions of a cent.
-- No autocomplete-on-every-keystroke to LLM — DB is always tried first.
-- Suggestions get written back, so popular missing institutes stop hitting the LLM after the first user finds them.
-
-## Out of scope
-- Bulk import of AICTE/UGC master list (can be a follow-up migration once we know we need it).
-- Admin UI to verify `source='llm'/'user'` rows.
-- Global (non-India) coverage beyond what the LLM returns opportunistically.
+## Verify
+`tsc --noEmit` (via `tsgo`) passes.
