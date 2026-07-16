@@ -105,4 +105,9 @@ export class LocalAIService implements AIServiceInterface {
       this.engine.interruptGenerate();
     }
   }
+
+  clear(): void {
+    this.engine = null;
+    this.updateStatus({ source: 'none', isReady: false, progress: 0, progressText: '' });
+  }
 }

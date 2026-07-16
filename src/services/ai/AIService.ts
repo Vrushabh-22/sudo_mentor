@@ -71,6 +71,9 @@ export class AIService implements AIServiceInterface {
     
     // We update status to indicate we are back to cloud
     this.handleStatusUpdate({ source: 'none', isReady: false, progress: 0, progressText: '' });
+    if ((this.localService as any).clear) {
+      (this.localService as any).clear();
+    }
     
     // Delete the WebLLM model cache from IndexedDB
     try {

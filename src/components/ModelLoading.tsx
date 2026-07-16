@@ -13,7 +13,7 @@ export function ModelLoading({ status }: ModelLoadingProps) {
   const percent = Math.round(status.progress * 100);
 
   return (
-    <div className="absolute top-0 inset-x-0 z-10 px-4 py-2 bg-white/80 backdrop-blur-md border-b text-xs flex items-center justify-between gap-4 shadow-sm">
+    <div className="fixed top-0 inset-x-0 z-50 px-4 py-2 bg-white/95 backdrop-blur-md border-b text-xs flex items-center justify-between gap-4 shadow-sm">
       <div className="flex-1 truncate font-medium text-slate-700">
         Downloading Local AI Model... {percent}%
       </div>
