@@ -2,17 +2,20 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { V4Profile } from '@/pages/CandidatePortalV4';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Send, Sparkles, Loader2, Mic, MessageSquare, Star, Brain, Briefcase, HelpCircle, X } from 'lucide-react';
+import { Send, Sparkles, Loader2, Mic, MessageSquare, Star, Brain, Briefcase, HelpCircle, X, Settings2, Cloud, Cpu } from 'lucide-react';
 import { SUPABASE_URL } from '@/integrations/supabase/client';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { MessageRenderer } from './chat/MessageRenderer';
 import { LearningPathView } from './LearningPathView';
 import { MockInterviewOverlay } from './MockInterviewOverlay';
 import { InterviewRecapCard, type InterviewRecap } from './InterviewRecapCard';
 import { missingEssentials } from '@/lib/profileCompleteness';
 import { uuid } from '@/lib/uuid';
-import { shouldUseNative, streamNativeLLM } from '@/lib/llmClient';
+import { useAI } from '@/hooks/useAI';
+import { AIStatusBadge } from '@/components/AIStatusBadge';
+import { ModelLoading } from '@/components/ModelLoading';
 
 const MENTOR_FEATURE = 'mentor_copilot_chat';
 
@@ -23,6 +26,7 @@ interface Msg {
   createdAt?: string;
   kind?: 'interview_recap';
   recap?: InterviewRecap;
+  source?: 'local' | 'cloud';
 }
 
 interface Props { candidate: V4Profile; onProfileChanged: () => void; onOpenProfile?: () => void }
@@ -120,9 +124,14 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
   const prependScrollRef = useRef<number | null>(null);
   const didInitialBottomScrollRef = useRef(false);
 
+  const { status, generate, cancel: cancelAI, isLocalAIOptedIn, enableLocalAI, disableLocalAI } = useAI();
+  const historyFetched = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+
+    if (historyFetched.current) return;
+    historyFetched.current = true;
 
     async function loadHistory() {
       const cached = readCache(candidate.id);
@@ -291,7 +300,10 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
   }
 
   async function send(text: string) {
-    if (!text.trim() || streaming) return;
+    if (!text.trim()) return;
+    if (streaming) {
+      cancelAI();
+    }
 
     const userMessage: Msg = {
       id: uuid(),
@@ -302,12 +314,13 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
     const assistantPlaceholderId = uuid();
 
     const next = [...messages, userMessage];
-    setMessages([...next, { id: assistantPlaceholderId, role: 'assistant', content: '' }]);
+    const initialSource = isLocalAIOptedIn && status.isReady ? 'local' : 'cloud';
+    setMessages([...next, { id: assistantPlaceholderId, role: 'assistant', content: '', source: initialSource }]);
     setInput('');
     setStreaming(true);
     shouldStickToBottomRef.current = true;
 
-    const outbound = next.map((message) => ({ role: message.role, content: message.content }));
+    const outbound = next.map((message) => ({ role: message.role, content: message.content })) as Array<{role: 'system'|'user'|'assistant', content: string}>;
 
     let acc = '';
     const paint = (delta: string) => {
@@ -315,61 +328,14 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
       shouldStickToBottomRef.current = true;
       setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, content: acc } : m)));
     };
-    const resetBubble = () => {
-      acc = '';
-      setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, content: '' } : m)));
-    };
-
-    async function streamFromCloud() {
-      const { data: { session } } = await supabase.auth.getSession();
-      const resp = await fetch(`${SUPABASE_URL}/functions/v1/mentor-copilot-chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
-        body: JSON.stringify({ messages: outbound, sessionId }),
-      });
-      if (!resp.ok || !resp.body) throw new Error('Chat failed');
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf('\n')) !== -1) {
-          const line = buf.slice(0, idx).replace(/\r$/, '');
-          buf = buf.slice(idx + 1);
-          if (line.startsWith('event: session')) continue;
-          if (!line.startsWith('data: ')) continue;
-          const j = line.slice(6).trim();
-          if (!j || j === '[DONE]') continue;
-          try {
-            const p = JSON.parse(j);
-            if (p.sessionId) {
-              setSessionId(p.sessionId);
-              continue;
-            }
-            const c = p.choices?.[0]?.delta?.content;
-            if (c) paint(c);
-          } catch {}
-        }
-      }
-    }
 
     try {
-      if (shouldUseNative(MENTOR_FEATURE)) {
-        try {
-          await streamNativeLLM({ feature: MENTOR_FEATURE, messages: outbound }, paint);
-        } catch (e) {
-          console.warn('[mentor] on-device failed, falling back to cloud', e);
-          resetBubble();
-          await streamFromCloud();
-        }
-      } else {
-        await streamFromCloud();
+      const response = await generate(outbound, paint, { sessionId });
+      if (response.sessionId) {
+        setSessionId(response.sessionId);
       }
       const finishedAt = new Date().toISOString();
-      setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, createdAt: finishedAt } : m)));
+      setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, createdAt: finishedAt, source: response.source } : m)));
     } catch {
       setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, content: '😔 Sorry, I had trouble responding. Please try again.', createdAt: new Date().toISOString() } : m)));
     } finally {
@@ -392,8 +358,8 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-180px)] lg:h-[calc(100vh-120px)] bg-white rounded-2xl border border-violet-100 shadow-sm overflow-hidden">
-      <div className="px-4 py-3 border-b bg-gradient-to-r from-violet-50 to-fuchsia-50 flex items-center gap-2">
+    <div className="flex flex-col h-[calc(100vh-180px)] lg:h-[calc(100vh-120px)] bg-white rounded-2xl border border-violet-100 shadow-sm overflow-hidden relative">
+      <div className="px-4 py-3 border-b bg-gradient-to-r from-violet-50 to-fuchsia-50 flex items-center gap-2 relative z-20">
         <div className="h-8 w-8 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
           <Sparkles className="h-4 w-4 text-white" />
         </div>
@@ -401,6 +367,26 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
           <div className="font-semibold text-sm">AlphaMentor</div>
           <div className="text-[10px] text-muted-foreground">Your personal placement coach</div>
         </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="p-2 rounded-full hover:bg-violet-100/50 transition">
+              <Settings2 className="h-4 w-4 text-violet-700" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>AI Engine Settings</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {isLocalAIOptedIn ? (
+              <DropdownMenuItem onClick={disableLocalAI}>
+                <Cloud className="h-4 w-4 mr-2 text-blue-600" /> Switch to Cloud AI
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onClick={enableLocalAI}>
+                <Cpu className="h-4 w-4 mr-2 text-violet-600" /> Download Local AI
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
         {missingEssentials(candidate).length > 0 && onOpenProfile && (
           <button
             onClick={onOpenProfile}
@@ -469,10 +455,19 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
                     )}
                     {m.createdAt && (
                       <div className={cn(
-                        'mt-1 text-[10px]',
-                        m.role === 'user' ? 'text-violet-100/80 text-right' : 'text-muted-foreground'
+                        'mt-1 text-[10px] flex items-center',
+                        m.role === 'user' ? 'text-violet-100/80 justify-end' : 'text-muted-foreground justify-between'
                       )}>
-                        {formatTime(m.createdAt)}
+                        {m.role === 'assistant' && (
+                          <div className="flex items-center gap-1 font-medium bg-black/5 px-1.5 py-0.5 rounded-sm">
+                            {m.source === 'local' ? (
+                              <><Cpu className="h-2.5 w-2.5 text-violet-600" /> Local AI</>
+                            ) : (
+                              <><Cloud className="h-2.5 w-2.5 text-blue-500" /> Cloud AI</>
+                            )}
+                          </div>
+                        )}
+                        <span>{formatTime(m.createdAt)}</span>
                       </div>
                     )}
                   </div>

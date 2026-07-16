@@ -37,6 +37,7 @@ import { Logo } from "@/components/Logo";
 import { isSudomentor } from "@/utils/isSudomentor";
 import { InstallAppButton } from "./InstallAppButton";
 import { V4TenantSwitcher } from "./V4TenantSwitcher";
+import { GlobalAILoading } from "@/components/GlobalAILoading";
 
 type Tab = "home" | "myboard" | "mentor" | "practice" | "jobs" | "profile" | "leaderboard" | "projects";
 
@@ -75,8 +76,9 @@ export function V4Shell({ bootstrap, onRefresh }: Props) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-violet-50/40 to-fuchsia-50/30 pb-24 lg:pb-8">
-      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-violet-100">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-violet-50/40 to-fuchsia-50/30 pb-24 lg:pb-8 relative">
+      <GlobalAILoading />
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-violet-100 mt-0">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 h-16 sm:h-20 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             {isSudomentor ? (
