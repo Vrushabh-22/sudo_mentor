@@ -1,13 +1,35 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { invokeV4 } from '@/lib/candidatePortalV4Client';
-import { Sparkles, Send, Loader2, Bot, Maximize2, Minimize2, X } from 'lucide-react';
+import { Sparkles, Send, Loader2, Bot, Maximize2, Minimize2, X, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { isInNativeApp, nativeSupportsFeature, onDeviceEnabled } from '@/lib/nativeLLMBridge';
+import { CreateWebWorkerMLCEngine, MLCEngine, hasModelInCache, prebuiltAppConfig } from '@mlc-ai/web-llm';
 
-interface Msg { id?: string; role: 'user' | 'assistant'; content: string; created_at?: string }
+const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
+let globalWebLLMEngine: MLCEngine | null = null;
+
+// Decrease prefill_chunk_size to prevent mobile OS from freezing during the prefill phase
+function getCustomAppConfig() {
+  const record = prebuiltAppConfig.model_list.find(m => m.model_id === MODEL_ID);
+  if (!record) return prebuiltAppConfig;
+  return {
+    ...prebuiltAppConfig,
+    model_list: [
+      ...prebuiltAppConfig.model_list.filter(m => m.model_id !== MODEL_ID),
+      {
+        ...record,
+        overrides: {
+          ...(record.overrides || {}),
+          prefill_chunk_size: 256
+        }
+      }
+    ]
+  };
+}
+
+interface Msg { id?: string; role: 'user' | 'assistant'; content: string; created_at?: string; source?: 'local' | 'cloud' }
 
 const SUGGESTIONS = [
   'Explain the problem like I am a beginner',
@@ -18,6 +40,9 @@ const SUGGESTIONS = [
 ];
 
 const PAGE_SIZE = 20;
+const LOCAL_TIMEOUT_MS = 12000;
+const MAX_LOCAL_TOKENS = 512;
+
 
 function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -91,6 +116,63 @@ export function V4ProjectMentorChat({ projectId, projectTitle }: { projectId: st
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
 
+  // Local LLM State
+  const [modelDownloaded, setModelDownloaded] = useState(false);
+  const [showConsent, setShowConsent] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [localModelReady, setLocalModelReady] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { value } = await LocalLLM.isModelDownloaded();
+        setModelDownloaded(value);
+        if (value) {
+          await LocalLLM.loadModel();
+          setLocalModelReady(true);
+        } else {
+          const declined = localStorage.getItem('sudomentor.localLLMDeclined');
+          const lastPrompt = localStorage.getItem('sudomentor.localLLMLastPrompt');
+          const cooldown = 7 * 24 * 60 * 60 * 1000;
+          if (!declined || (lastPrompt && Date.now() - parseInt(lastPrompt) > cooldown)) {
+            setShowConsent(true);
+          }
+        }
+      } catch (e) {
+        // Plugin possibly not available, ignore
+      }
+    })();
+  }, []);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    setShowConsent(false);
+    setShowSettings(false);
+    try {
+      const handle = await LocalLLM.addListener('downloadProgress', (data) => {
+        if (data.status === 'downloading') setDownloadProgress(data.progress);
+      });
+      await LocalLLM.downloadModel({ url: MODEL_DOWNLOAD_URL });
+      await handle.remove();
+      setModelDownloaded(true);
+      await LocalLLM.loadModel();
+      setLocalModelReady(true);
+    } catch (e) {
+      toast({ title: 'Download failed', description: String(e), variant: 'destructive' });
+    } finally {
+      setDownloading(false);
+      setDownloadProgress(0);
+    }
+  };
+
+  const handleDecline = () => {
+    localStorage.setItem('sudomentor.localLLMDeclined', 'true');
+    localStorage.setItem('sudomentor.localLLMLastPrompt', Date.now().toString());
+    setShowConsent(false);
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -112,7 +194,6 @@ export function V4ProjectMentorChat({ projectId, projectTitle }: { projectId: st
       });
     })();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   useEffect(() => {
@@ -170,6 +251,47 @@ export function V4ProjectMentorChat({ projectId, projectTitle }: { projectId: st
     setInput('');
     setLoading(true);
     stickToBottomRef.current = true;
+
+    // Yield to the browser render loop so the new message bubble paints immediately
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Phase D: Try local first
+    if (localModelReady) {
+      let maxTries = 2;
+      for (let attempt = 1; attempt <= maxTries; attempt++) {
+        try {
+          if (!globalWebLLMEngine) {
+            globalWebLLMEngine = await CreateWebWorkerMLCEngine(new Worker(new URL('../../../lib/llm-worker.ts', import.meta.url), { type: 'module' }), MODEL_ID, { appConfig: getCustomAppConfig() });
+          }
+          const webllmMessages = [
+            { role: "system", content: "You are an expert technical mentor." },
+            ...messages.slice(-6).map((m: any) => ({ role: m.role, content: m.content }))
+          ];
+          const chunks = await globalWebLLMEngine.chat.completions.create({
+            messages: webllmMessages as any,
+            stream: false,
+          });
+          const resText = chunks.choices[0]?.message?.content || "";
+          if (resText.trim().length > 0) {
+            setMessages((prev) => [
+               ...prev.map(m => m === optimistic ? { ...m, id: Date.now().toString() } : m),
+               { id: Date.now().toString(), role: 'assistant', content: resText, created_at: new Date().toISOString(), source: 'local' }
+            ]);
+            setLoading(false);
+            return;
+          }
+          break; // Success
+        } catch (e) {
+          console.warn(`Local LLM attempt ${attempt} failed:`, e);
+          if (attempt === maxTries) {
+            break; // Give up and fall through to cloud
+          } else {
+            globalWebLLMEngine = null; // Force recreation
+          }
+        }
+      }
+    }
+
     const { data, error } = await invokeV4({ action: 'mentor_chat', project_id: projectId, user_message: t });
     setLoading(false);
     if (error || (data as any)?.error) {
@@ -182,14 +304,14 @@ export function V4ProjectMentorChat({ projectId, projectTitle }: { projectId: st
       for (let i = next.length - 1; i >= 0; i--) {
         if (next[i].role === 'user' && !next[i].id) { next[i] = { ...next[i], id: d.user_id }; break; }
       }
-      next.push({ id: d.assistant_id, role: 'assistant', content: d.reply, created_at: d.created_at });
+      next.push({ id: d.assistant_id, role: 'assistant', content: d.reply, created_at: d.created_at, source: 'cloud' });
       return next;
     });
   };
 
   const shellCls = fullscreen
     ? 'fixed inset-0 z-[100] bg-white flex flex-col'
-    : 'flex flex-col h-[520px] bg-white rounded-2xl border border-slate-200 overflow-hidden';
+    : 'flex flex-col h-[520px] bg-white rounded-2xl border border-slate-200 overflow-hidden relative';
 
   const content = (
     <div className={shellCls}>
@@ -198,13 +320,20 @@ export function V4ProjectMentorChat({ projectId, projectTitle }: { projectId: st
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold leading-tight flex items-center gap-1.5">
             Project Mentor
-            {isInNativeApp() && onDeviceEnabled() && nativeSupportsFeature('project_mentor_chat') && (
+            {localModelReady && (
               <span className="text-[9px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200">On‑device</span>
             )}
           </div>
           <div className="text-[10px] text-slate-500 truncate">Ask anything about this project</div>
         </div>
         <Sparkles className="h-4 w-4 text-violet-600" />
+        <button
+          onClick={() => setShowSettings(true)}
+          aria-label="Settings"
+          className="ml-1 h-7 w-7 rounded-md hover:bg-white/70 flex items-center justify-center text-slate-600 hover:text-slate-900 transition-colors"
+        >
+          <Settings className="h-3.5 w-3.5" />
+        </button>
         <button
           onClick={() => setFullscreen((v) => !v)}
           aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen mentor'}
@@ -219,7 +348,7 @@ export function V4ProjectMentorChat({ projectId, projectTitle }: { projectId: st
         )}
       </div>
 
-      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto p-3 sm:p-4 bg-slate-50/40">
+      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto p-3 sm:p-4 bg-slate-50/40 relative">
         <div className={fullscreen ? 'mx-auto w-full max-w-3xl space-y-3' : 'space-y-3'}>
           {loadingOlder && (
             <div className="flex justify-center py-1 text-[11px] text-slate-500 gap-1.5 items-center">
@@ -233,12 +362,19 @@ export function V4ProjectMentorChat({ projectId, projectTitle }: { projectId: st
           )}
           {messages.map((m, i) => (
             <div key={m.id || i} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-              <div className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 ${
-                m.role === 'user'
-                  ? 'bg-violet-600 text-white rounded-br-md [&_strong]:text-white [&_code]:bg-violet-500 [&_code]:text-white [&_a]:text-white'
-                  : 'bg-white border border-slate-200 text-slate-800 rounded-bl-md shadow-sm [&_a]:text-violet-600'
-              }`}>
-                <MarkdownLite text={m.content} />
+              <div className="flex flex-col gap-1 max-w-[88%]">
+                <div className={`rounded-2xl px-3.5 py-2.5 ${
+                  m.role === 'user'
+                    ? 'bg-violet-600 text-white rounded-br-md [&_strong]:text-white [&_code]:bg-violet-500 [&_code]:text-white [&_a]:text-white'
+                    : 'bg-white border border-slate-200 text-slate-800 rounded-bl-md shadow-sm [&_a]:text-violet-600'
+                }`}>
+                  <MarkdownLite text={m.content} />
+                </div>
+                {m.role === 'assistant' && m.source && (
+                  <div className="text-[9px] font-medium uppercase tracking-wide text-slate-400 pl-2">
+                    {m.source === 'local' ? '⚡ On-device' : '☁️ Cloud'}
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -278,6 +414,60 @@ export function V4ProjectMentorChat({ projectId, projectTitle }: { projectId: st
           </Button>
         </div>
       </div>
+      
+      {/* Modals & Overlays */}
+      {showConsent && (
+        <div className="absolute inset-0 z-[150] bg-slate-900/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-lg p-5 max-w-sm w-full space-y-4">
+            <h3 className="font-semibold text-slate-900">Download Local AI Model?</h3>
+            <p className="text-sm text-slate-600">
+              Download Qwen2.5-1.5B (approx. 1.1GB) to get faster, offline responses from your mentor. We recommend downloading over Wi-Fi.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={handleDecline}>Ask Later</Button>
+              <Button onClick={handleDownload}>Download Now</Button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {showSettings && (
+        <div className="absolute inset-0 z-[150] bg-slate-900/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-lg p-5 max-w-sm w-full space-y-4 relative">
+             <button onClick={() => setShowSettings(false)} className="absolute top-3 right-3 text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
+             <h3 className="font-semibold text-slate-900">Mentor Settings</h3>
+             <div className="space-y-3">
+               <div className="flex justify-between items-center text-sm">
+                 <span className="text-slate-600">Local Model Status:</span>
+                 <span className="font-medium text-slate-900">{modelDownloaded ? 'Downloaded' : 'Not installed'}</span>
+               </div>
+               {!modelDownloaded && !downloading && (
+                 <Button onClick={handleDownload} className="w-full">Download Local Model (1.1GB)</Button>
+               )}
+               {modelDownloaded && (
+                 <Button variant="destructive" className="w-full" onClick={async () => {
+                   
+                   setModelDownloaded(false);
+                   setLocalModelReady(false);
+                   setShowSettings(false);
+                 }}>Delete Local Model</Button>
+               )}
+             </div>
+          </div>
+        </div>
+      )}
+      
+      {downloading && (
+        <div className="absolute inset-0 z-[150] bg-slate-900/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-lg p-5 max-w-sm w-full space-y-3 text-center">
+            <h3 className="font-semibold text-slate-900">Downloading Model...</h3>
+            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+               <div className="bg-violet-600 h-full transition-all duration-300" style={{ width: `${downloadProgress * 100}%` }} />
+            </div>
+            <p className="text-xs text-slate-500">{Math.round(downloadProgress * 100)}%</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 

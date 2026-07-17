@@ -447,6 +447,34 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (action === "save_local") {
+      let sid: string | null | undefined = sessionId;
+      if (!sid) {
+        const latest = await getLatestSession(sb, cand.id);
+        sid = latest?.id;
+      }
+      if (!sid) {
+        const { data: s } = await sb.from("candidate_mentor_sessions")
+          .insert({ candidate_id: cand.id, title: "Mentor chat" }).select("id").single();
+        sid = s?.id;
+      }
+      if (sid && messages.length >= 2) {
+        const userMsg = messages[messages.length - 2];
+        const asstMsg = messages[messages.length - 1];
+        if (userMsg.role === "user" && asstMsg.role === "assistant") {
+          await sb.from("candidate_mentor_messages").insert([
+            { session_id: sid, role: "user", content: userMsg.content },
+            { session_id: sid, role: "assistant", content: asstMsg.content }
+          ]);
+          let mem = await loadMemory(sb, cand.id);
+          await applySignalsAndStreak(sb, mem, userMsg.content);
+        }
+      }
+      return new Response(JSON.stringify({ success: true, sessionId: sid }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ---- Chat (default action) ----
     let sid: string | null | undefined = sessionId;
     let sessionMessageCount = 0;
