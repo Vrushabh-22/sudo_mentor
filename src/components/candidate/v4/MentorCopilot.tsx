@@ -2,39 +2,20 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { V4Profile } from '@/pages/CandidatePortalV4';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Send, Sparkles, Loader2, Mic, MessageSquare, Star, Brain, Briefcase, HelpCircle, X, Settings } from 'lucide-react';
+import { Send, Sparkles, Loader2, Mic, MessageSquare, Star, Brain, Briefcase, HelpCircle, X, Settings2, Cloud, Cpu } from 'lucide-react';
 import { SUPABASE_URL } from '@/integrations/supabase/client';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { MessageRenderer } from './chat/MessageRenderer';
 import { LearningPathView } from './LearningPathView';
 import { MockInterviewOverlay } from './MockInterviewOverlay';
 import { InterviewRecapCard, type InterviewRecap } from './InterviewRecapCard';
 import { missingEssentials } from '@/lib/profileCompleteness';
 import { uuid } from '@/lib/uuid';
-import { CreateWebWorkerMLCEngine, MLCEngine, hasModelInCache, prebuiltAppConfig } from '@mlc-ai/web-llm';
-
-const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
-let globalWebLLMEngine: MLCEngine | null = null;
-
-// Decrease prefill_chunk_size to prevent mobile OS from freezing during the prefill phase
-function getCustomAppConfig() {
-  const record = prebuiltAppConfig.model_list.find(m => m.model_id === MODEL_ID);
-  if (!record) return prebuiltAppConfig;
-  return {
-    ...prebuiltAppConfig,
-    model_list: [
-      ...prebuiltAppConfig.model_list.filter(m => m.model_id !== MODEL_ID),
-      {
-        ...record,
-        overrides: {
-          ...(record.overrides || {}),
-          prefill_chunk_size: 256
-        }
-      }
-    ]
-  };
-}
+import { useAI } from '@/hooks/useAI';
+import { AIStatusBadge } from '@/components/AIStatusBadge';
+import { ModelLoading } from '@/components/ModelLoading';
 
 const MENTOR_FEATURE = 'mentor_copilot_chat';
 
@@ -80,7 +61,7 @@ function writeCache(candidateId: string, sessionId: string | undefined, messages
   try {
     const trimmed = messages.slice(-CACHE_MAX);
     localStorage.setItem(cacheKey(candidateId), JSON.stringify({ sessionId, messages: trimmed }));
-  } catch { }
+  } catch {}
 }
 
 function formatDayLabel(iso?: string): string {
@@ -143,72 +124,14 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
   const prependScrollRef = useRef<number | null>(null);
   const didInitialBottomScrollRef = useRef(false);
 
-  // Local LLM State
-  const [modelDownloaded, setModelDownloaded] = useState(false);
-  const [showConsent, setShowConsent] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState(0);
-  const [localModelReady, setLocalModelReady] = useState(false);
-  const [modelInitializing, setModelInitializing] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const isCached = await hasModelInCache(MODEL_ID);
-        setModelDownloaded(isCached);
-        if (isCached) {
-          if (!globalWebLLMEngine) {
-            setModelInitializing(true);
-            globalWebLLMEngine = await CreateWebWorkerMLCEngine(new Worker(new URL('../../../lib/llm-worker.ts', import.meta.url), { type: 'module' }), MODEL_ID, { appConfig: getCustomAppConfig() });
-            setModelInitializing(false);
-          }
-          setLocalModelReady(true);
-        } else {
-          const declined = localStorage.getItem('sudomentor.localLLMDeclined');
-          const lastPrompt = localStorage.getItem('sudomentor.localLLMLastPrompt');
-          const cooldown = 7 * 24 * 60 * 60 * 1000;
-          if (!declined || (lastPrompt && Date.now() - parseInt(lastPrompt) > cooldown)) {
-            setShowConsent(true);
-          }
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    })();
-  }, []);
-
-  const handleDownload = async () => {
-    setDownloading(true);
-    setShowConsent(false);
-    setShowSettings(false);
-    try {
-      globalWebLLMEngine = await CreateWebWorkerMLCEngine(new Worker(new URL('../../../lib/llm-worker.ts', import.meta.url), { type: 'module' }), MODEL_ID, {
-        appConfig: getCustomAppConfig(),
-        initProgressCallback: (progress) => {
-          setDownloadProgress(progress.progress); // 0.0 to 1.0
-        }
-      });
-      setModelDownloaded(true);
-      setLocalModelReady(true);
-    } catch (e: any) {
-      console.error("Download failed", e);
-      alert("Error: " + (e.message || String(e)));
-    } finally {
-      setDownloading(false);
-      setDownloadProgress(0);
-    }
-  };
-
-  const handleDecline = () => {
-    localStorage.setItem('sudomentor.localLLMDeclined', 'true');
-    localStorage.setItem('sudomentor.localLLMLastPrompt', Date.now().toString());
-    setShowConsent(false);
-  };
-
+  const { status, generate, cancel: cancelAI, isLocalAIOptedIn, enableLocalAI, disableLocalAI } = useAI();
+  const historyFetched = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+
+    if (historyFetched.current) return;
+    historyFetched.current = true;
 
     async function loadHistory() {
       const cached = readCache(candidate.id);
@@ -248,12 +171,11 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
         setSessionId(data?.sessionId || undefined);
         const loadedMessages = (Array.isArray(data?.messages)
           ? data.messages.map((m: any) => ({
-            id: m.id || uuid(),
-            role: m.role,
-            content: m.content || '',
-            createdAt: m.created_at,
-            source: m.role === 'assistant' ? 'cloud' : undefined
-          }))
+              id: m.id || uuid(),
+              role: m.role,
+              content: m.content || '',
+              createdAt: m.created_at,
+            }))
           : []
         ).filter((m: Msg) => !isInterviewInternal(m));
 
@@ -293,7 +215,7 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
         const mem = d?.memory || {};
         setWeakTopics(Array.isArray(mem.weak_topics) ? mem.weak_topics : []);
         setStreakDays(Number(mem.streak_days) || 0);
-      } catch { }
+      } catch {}
     })();
 
     return () => { cancelled = true; };
@@ -355,12 +277,11 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
       const data = await resp.json();
       const olderMessages = (Array.isArray(data?.messages)
         ? data.messages.map((m: any) => ({
-          id: m.id || uuid(),
-          role: m.role,
-          content: m.content || '',
-          createdAt: m.created_at,
-          source: m.role === 'assistant' ? 'cloud' : undefined
-        }))
+            id: m.id || uuid(),
+            role: m.role,
+            content: m.content || '',
+            createdAt: m.created_at,
+          }))
         : []
       ).filter((m: Msg) => !isInterviewInternal(m));
 
@@ -379,7 +300,10 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
   }
 
   async function send(text: string) {
-    if (!text.trim() || streaming) return;
+    if (!text.trim()) return;
+    if (streaming) {
+      cancelAI();
+    }
 
     const userMessage: Msg = {
       id: uuid(),
@@ -390,15 +314,13 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
     const assistantPlaceholderId = uuid();
 
     const next = [...messages, userMessage];
-    setMessages([...next, { id: assistantPlaceholderId, role: 'assistant', content: '' }]);
+    const initialSource = isLocalAIOptedIn && status.isReady ? 'local' : 'cloud';
+    setMessages([...next, { id: assistantPlaceholderId, role: 'assistant', content: '', source: initialSource }]);
     setInput('');
     setStreaming(true);
     shouldStickToBottomRef.current = true;
 
-    // Yield to the browser render loop so the new message bubble paints immediately
-    await new Promise(resolve => setTimeout(resolve, 50));
-
-    const outbound = next.map((message) => ({ role: message.role, content: message.content }));
+    const outbound = next.map((message) => ({ role: message.role, content: message.content })) as Array<{role: 'system'|'user'|'assistant', content: string}>;
 
     let acc = '';
     const paint = (delta: string) => {
@@ -406,159 +328,14 @@ export function MentorCopilot({ candidate, onProfileChanged, onOpenProfile }: Pr
       shouldStickToBottomRef.current = true;
       setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, content: acc } : m)));
     };
-    const resetBubble = () => {
-      acc = '';
-      setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, content: '' } : m)));
-    };
 
-    async function streamFromCloud() {
-      const { data: { session } } = await supabase.auth.getSession();
-      const resp = await fetch(`${SUPABASE_URL}/functions/v1/mentor-copilot-chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
-        body: JSON.stringify({ messages: outbound, sessionId }),
-      });
-      if (!resp.ok || !resp.body) throw new Error('Chat failed');
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf('\n')) !== -1) {
-          const line = buf.slice(0, idx).replace(/\r$/, '');
-          buf = buf.slice(idx + 1);
-          if (line.startsWith('event: session')) continue;
-          if (!line.startsWith('data: ')) continue;
-          const j = line.slice(6).trim();
-          if (!j || j === '[DONE]') continue;
-          try {
-            const p = JSON.parse(j);
-            if (p.sessionId) {
-              setSessionId(p.sessionId);
-              continue;
-            }
-            const c = p.choices?.[0]?.delta?.content;
-            if (c) paint(c);
-          } catch { }
-        }
-      }
-    }
-
-    let finalSource: 'local' | 'cloud' = 'cloud';
     try {
-      if (localModelReady) {
-        // Fetch context from the RAG node backend
-        let contextText = '';
-        try {
-          const ragRes = await fetch('https://mentor-app-9izg.onrender.com/chat/retreve', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ question: text }),
-          });
-          if (ragRes.ok) {
-            const ragData = await ragRes.json();
-            if (ragData.hasContext && Array.isArray(ragData.chunks)) {
-              contextText = ragData.chunks.map((c: any, i: number) => `[${i + 1}] ${c.text}`).join('\n\n');
-            }
-          }
-        } catch (e) {
-          console.warn('RAG retrieval failed, continuing without context', e);
-        }
-
-        const weakList = weakTopics.map(w => `${w.topic} (x${w.hits})`).join(', ');
-        const skillsList = Array.isArray(candidate.skills_v4) ? candidate.skills_v4.map((s: any) => s.name || s).join(', ') : 'none listed';
-        let systemStr = `You are AlphaMentor, an expert placement coach.
-Candidate Name: ${candidate.first_name || 'Student'}
-Skills: ${skillsList}
-Weak Topics: ${weakList || 'none tracked'}
-Current Streak: ${streakDays} days
-Be warm and helpful as a senior mentor. Provide a concise, clear response.`;
-        if (contextText) {
-          systemStr += '\n\nThe context below contains factual information — use it as your foundation. Build on it freely: give examples, analogies, step-by-step explanations, and elaborations using your own knowledge.\n\nContext:\n' + contextText;
-        }
-
-        const webllmMessages = [
-          { role: "system", content: systemStr },
-          ...outbound.slice(-10).map((m: any) => ({ role: m.role, content: m.content }))
-        ];
-        
-        let streamedText = '';
-        
-        let maxTries = 2;
-        for (let attempt = 1; attempt <= maxTries; attempt++) {
-          try {
-            if (!globalWebLLMEngine) {
-              globalWebLLMEngine = await CreateWebWorkerMLCEngine(new Worker(new URL('../../../lib/llm-worker.ts', import.meta.url), { type: 'module' }), MODEL_ID, { appConfig: getCustomAppConfig() });
-            }
-
-            const chunks = await globalWebLLMEngine.chat.completions.create({
-              messages: webllmMessages as any,
-              stream: true,
-            });
-
-            for await (const chunk of chunks) {
-              const delta = chunk.choices[0]?.delta?.content || "";
-              if (delta) {
-                streamedText += delta;
-                setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, content: streamedText } : m)));
-              }
-            }
-
-            if (streamedText.trim().length > 0) {
-              finalSource = 'local';
-              paint(streamedText);
-              const finishedAt = new Date().toISOString();
-              setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, createdAt: finishedAt, source: finalSource } : m)));
-              setStreaming(false);
-
-              // Background sync to cloud
-              (async () => {
-                try {
-                  const { data: { session } } = await supabase.auth.getSession();
-                  if (session?.access_token) {
-                    const res = await fetch(`${SUPABASE_URL}/functions/v1/mentor-copilot-chat`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-                      body: JSON.stringify({
-                        action: 'save_local',
-                        sessionId,
-                        messages: [
-                          { role: 'user', content: text },
-                          { role: 'assistant', content: streamedText }
-                        ]
-                      }),
-                    });
-                    const d = await res.json();
-                    if (d.sessionId && !sessionId) setSessionId(d.sessionId);
-                  }
-                } catch (e) {
-                  console.error('Failed to sync local chat', e);
-                }
-              })();
-
-              return;
-            }
-            break; // Success, exit retry loop
-          } catch (e) {
-            console.warn(`Local LLM attempt ${attempt} failed, likely WebGPU context loss.`, e);
-            if (attempt === maxTries) {
-              resetBubble();
-              finalSource = 'cloud';
-              await streamFromCloud();
-              return;
-            } else {
-              globalWebLLMEngine = null; // Force recreation
-            }
-          }
-        }
-      } else {
-        await streamFromCloud();
+      const response = await generate(outbound, paint, { sessionId });
+      if (response.sessionId) {
+        setSessionId(response.sessionId);
       }
       const finishedAt = new Date().toISOString();
-      setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, createdAt: finishedAt, source: finalSource } : m)));
+      setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, createdAt: finishedAt, source: response.source } : m)));
     } catch {
       setMessages((prev) => prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, content: '😔 Sorry, I had trouble responding. Please try again.', createdAt: new Date().toISOString() } : m)));
     } finally {
@@ -582,43 +359,43 @@ Be warm and helpful as a senior mentor. Provide a concise, clear response.`;
 
   return (
     <div className="flex flex-col h-[calc(100vh-180px)] lg:h-[calc(100vh-120px)] bg-white rounded-2xl border border-violet-100 shadow-sm overflow-hidden relative">
-      <div className="px-3 sm:px-4 py-3 border-b bg-gradient-to-r from-violet-50 to-fuchsia-50 flex items-center gap-2">
-        <div className="h-8 w-8 shrink-0 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
+      <div className="px-4 py-3 border-b bg-gradient-to-r from-violet-50 to-fuchsia-50 flex items-center gap-2 relative z-20">
+        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
           <Sparkles className="h-4 w-4 text-white" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-semibold text-sm flex flex-wrap items-center gap-x-1.5 gap-y-1">
-            <span className="truncate max-w-full">AlphaMentor</span>
-            {modelInitializing && (
-              <span className="shrink-0 text-[9px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 ring-1 ring-amber-200 flex items-center gap-1">
-                <Loader2 className="h-2 w-2 animate-spin" /> Loading
-              </span>
-            )}
-            {localModelReady && !modelInitializing && (
-              <span className="shrink-0 text-[9px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200">On‑device</span>
-            )}
-          </div>
-          <div className="text-[10px] text-muted-foreground truncate">Your personal placement coach</div>
+          <div className="font-semibold text-sm">AlphaMentor</div>
+          <div className="text-[10px] text-muted-foreground">Your personal placement coach</div>
         </div>
-        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-          <button
-            onClick={() => setShowSettings(true)}
-            aria-label="Settings"
-            className="h-7 w-7 rounded-md hover:bg-violet-100 flex shrink-0 items-center justify-center text-violet-600 transition-colors"
-          >
-            <Settings className="h-4 w-4" />
-          </button>
-          {missingEssentials(candidate).length > 0 && onOpenProfile && (
-            <button
-              onClick={onOpenProfile}
-              className="text-[10px] sm:text-[11px] shrink-0 font-medium px-2 py-1 sm:px-2.5 sm:py-1 rounded-full bg-white border border-violet-200 text-violet-700 hover:bg-violet-50 transition whitespace-nowrap"
-              title="Open full profile editor"
-            >
-              <span className="hidden sm:inline">Complete profile →</span>
-              <span className="sm:hidden">Complete →</span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="p-2 rounded-full hover:bg-violet-100/50 transition">
+              <Settings2 className="h-4 w-4 text-violet-700" />
             </button>
-          )}
-        </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>AI Engine Settings</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {isLocalAIOptedIn ? (
+              <DropdownMenuItem onClick={disableLocalAI}>
+                <Cloud className="h-4 w-4 mr-2 text-blue-600" /> Switch to Cloud AI
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onClick={enableLocalAI}>
+                <Cpu className="h-4 w-4 mr-2 text-violet-600" /> Download Local AI
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {missingEssentials(candidate).length > 0 && onOpenProfile && (
+          <button
+            onClick={onOpenProfile}
+            className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-white border border-violet-200 text-violet-700 hover:bg-violet-50 transition whitespace-nowrap"
+            title="Open full profile editor"
+          >
+            Complete profile →
+          </button>
+        )}
       </div>
 
       <div
@@ -663,32 +440,34 @@ Be warm and helpful as a senior mentor. Provide a concise, clear response.`;
                 </div>
               ) : (
                 <div className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
-                  <div className="flex flex-col gap-1 max-w-[88%]">
-                    <div className={cn(
-                      'rounded-2xl px-3.5 py-2.5 text-sm shadow-sm w-full',
-                      m.role === 'user'
-                        ? 'bg-violet-600 text-white rounded-br-sm'
-                        : 'bg-slate-50 text-slate-800 rounded-bl-sm border border-slate-100'
-                    )}>
-                      {m.role === 'assistant' ? (
-                        m.content
-                          ? <MessageRenderer text={m.content} candidate={candidate} onProfilePatched={handleProfileSaved} onOpenPath={(id) => setOpenPathId(id)} onStartMockInterview={() => { setInterviewTopic(undefined); setShowInterviewOverlay(true); }} />
-                          : <div className="text-muted-foreground">...</div>
-                      ) : (
-                        <div className="whitespace-pre-wrap">{m.content}</div>
-                      )}
-                      {m.createdAt && (
-                        <div className={cn(
-                          'mt-1 text-[10px]',
-                          m.role === 'user' ? 'text-violet-100/80 text-right' : 'text-muted-foreground'
-                        )}>
-                          {formatTime(m.createdAt)}
-                        </div>
-                      )}
-                    </div>
-                    {m.role === 'assistant' && m.source && (
-                      <div className="text-[9px] font-medium uppercase tracking-wide text-slate-400 pl-2">
-                        {m.source === 'local' ? '⚡ On-device' : '☁️ Cloud'}
+                  <div className={cn(
+                    'max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm',
+                    m.role === 'user'
+                      ? 'bg-violet-600 text-white rounded-br-sm'
+                      : 'bg-slate-50 text-slate-800 rounded-bl-sm border border-slate-100'
+                  )}>
+                    {m.role === 'assistant' ? (
+                      m.content
+                        ? <MessageRenderer text={m.content} candidate={candidate} onProfilePatched={handleProfileSaved} onOpenPath={(id) => setOpenPathId(id)} onStartMockInterview={() => { setInterviewTopic(undefined); setShowInterviewOverlay(true); }} />
+                        : <div className="text-muted-foreground">...</div>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{m.content}</div>
+                    )}
+                    {m.createdAt && (
+                      <div className={cn(
+                        'mt-1 text-[10px] flex items-center',
+                        m.role === 'user' ? 'text-violet-100/80 justify-end' : 'text-muted-foreground justify-between'
+                      )}>
+                        {m.role === 'assistant' && (
+                          <div className="flex items-center gap-1 font-medium bg-black/5 px-1.5 py-0.5 rounded-sm">
+                            {m.source === 'local' ? (
+                              <><Cpu className="h-2.5 w-2.5 text-violet-600" /> Local AI</>
+                            ) : (
+                              <><Cloud className="h-2.5 w-2.5 text-blue-500" /> Cloud AI</>
+                            )}
+                          </div>
+                        )}
+                        <span>{formatTime(m.createdAt)}</span>
                       </div>
                     )}
                   </div>
@@ -805,60 +584,6 @@ Be warm and helpful as a senior mentor. Provide a concise, clear response.`;
             shouldStickToBottomRef.current = true;
           }}
         />
-      )}
-      
-      {/* Modals & Overlays */}
-      {showConsent && (
-        <div className="absolute inset-0 z-[150] bg-slate-900/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-lg p-5 max-w-sm w-full space-y-4">
-            <h3 className="font-semibold text-slate-900">Download Local AI Model?</h3>
-            <p className="text-sm text-slate-600">
-              Download Qwen2.5-1.5B (approx. 1.1GB) to get faster, offline responses from your mentor. We recommend downloading over Wi-Fi.
-            </p>
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={handleDecline}>Ask Later</Button>
-              <Button onClick={handleDownload}>Download Now</Button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {showSettings && (
-        <div className="absolute inset-0 z-[150] bg-slate-900/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-lg p-5 max-w-sm w-full space-y-4 relative">
-             <button onClick={() => setShowSettings(false)} className="absolute top-3 right-3 text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
-             <h3 className="font-semibold text-slate-900">Mentor Settings</h3>
-             <div className="space-y-3">
-               <div className="flex justify-between items-center text-sm">
-                 <span className="text-slate-600">Local Model Status:</span>
-                 <span className="font-medium text-slate-900">{modelDownloaded ? 'Downloaded' : 'Not installed'}</span>
-               </div>
-               {!modelDownloaded && !downloading && (
-                 <Button onClick={handleDownload} className="w-full">Download Local Model (1.1GB)</Button>
-               )}
-               {modelDownloaded && (
-                 <Button variant="destructive" className="w-full" onClick={async () => {
-
-                   setModelDownloaded(false);
-                   setLocalModelReady(false);
-                   setShowSettings(false);
-                 }}>Delete Local Model</Button>
-               )}
-             </div>
-          </div>
-        </div>
-      )}
-      
-      {downloading && (
-        <div className="absolute inset-0 z-[150] bg-slate-900/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-lg p-5 max-w-sm w-full space-y-3 text-center">
-            <h3 className="font-semibold text-slate-900">Downloading Model...</h3>
-            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-               <div className="bg-violet-600 h-full transition-all duration-300" style={{ width: `${downloadProgress * 100}%` }} />
-            </div>
-            <p className="text-xs text-slate-500">{Math.round(downloadProgress * 100)}%</p>
-          </div>
-        </div>
       )}
     </div>
   );
